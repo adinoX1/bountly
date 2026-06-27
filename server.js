@@ -21,9 +21,19 @@ const DB_FILE  = path.join(__dirname, "data.json");
 const UP_DIR   = path.join(__dirname, "uploads");
 if(!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR);
 
+// ---- storage: Postgres if DATABASE_URL is set, else local JSON file ----
+const USE_DB = !!process.env.DATABASE_URL;
+let pool = null;
+async function initPool(){
+  if(!USE_DB) return;
+  const pg = (await import("pg")).default;
+  pool = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.PGSSL === "1" ? { rejectUnauthorized:false } : false
+  });
+}
+
 let db;
-function load(){ try{ db = JSON.parse(fs.readFileSync(DB_FILE,"utf8")); }catch(e){ seed(); } }
-function save(){ fs.writeFileSync(DB_FILE, JSON.stringify(db,null,2)); }
 function seed(){
   const now=Date.now();
   db={ users:{}, challenges:[], submissions:[], txns:[], seq:{ch:0,sub:0,tx:0} };
@@ -36,13 +46,35 @@ function seed(){
       desc:"Sing the first verse out loud in a public place — a square, park or bus stop.",
       rules:"Say the code. Singing must be audible. Don't film bystanders up close.",
       reward:15, maxWinners:3, creator:"demo", createdAt:now-1800e3 });
-  save();
 }
-load();
+// persist whole state. In DB mode it's fire-and-forget (in-memory is already updated).
+function save(){
+  if(USE_DB){ persist().catch(e=>console.error("DB save error:", e.message)); }
+  else { fs.writeFileSync(DB_FILE, JSON.stringify(db,null,2)); }
+}
+async function persist(){
+  await pool.query(
+    "INSERT INTO app_state(id,data) VALUES(1,$1::jsonb) ON CONFLICT (id) DO UPDATE SET data=$1::jsonb",
+    [JSON.stringify(db)]
+  );
+}
+async function initStore(){
+  if(USE_DB){
+    await initPool();
+    await pool.query("CREATE TABLE IF NOT EXISTS app_state (id int PRIMARY KEY, data jsonb NOT NULL)");
+    const r = await pool.query("SELECT data FROM app_state WHERE id=1");
+    if(r.rows.length){ db = r.rows[0].data; console.log("✓ Loaded state from Postgres"); }
+    else { seed(); await persist(); console.log("✓ Seeded fresh Postgres database"); }
+  } else {
+    try{ db = JSON.parse(fs.readFileSync(DB_FILE,"utf8")); console.log("✓ Loaded local data.json"); }
+    catch(e){ seed(); fs.writeFileSync(DB_FILE, JSON.stringify(db,null,2)); console.log("✓ Created local data.json"); }
+  }
+}
 
 // ---- Telegram auth ----
 function verifyTelegram(initData){
   if(!BOT_TOKEN) return { ok:false, error:"server BOT_TOKEN not set" };
+
   const params=new URLSearchParams(initData);
   const hash=params.get("hash"); if(!hash) return { ok:false, error:"no hash" };
   params.delete("hash");
@@ -245,4 +277,9 @@ const server=http.createServer(async (req,res)=>{
     res.writeHead(200,{ "Content-Type":types[ext]||"application/octet-stream" }); res.end(data);
   });
 });
-server.listen(PORT,()=>console.log(`Bountly running on http://localhost:${PORT}  (BOT_TOKEN ${BOT_TOKEN?"set":"NOT set — DEV mode"})`));
+server.listen; // (defined below after store init)
+
+initStore()
+  .then(()=> server.listen(PORT, ()=>console.log(
+    `Bountly running on http://localhost:${PORT}  · storage: ${USE_DB?"Postgres":"local JSON"}  · BOT_TOKEN ${BOT_TOKEN?"set":"NOT set (DEV mode)"}`)))
+  .catch(e=>{ console.error("Startup failed:", e.message); process.exit(1); });
