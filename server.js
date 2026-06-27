@@ -187,7 +187,6 @@ const server=http.createServer(async (req,res)=>{
 
     if(p==="/api/challenges" && req.method==="POST"){
       if(u.banned) return json(res,403,{error:"banned"});
-      if(u.isAdmin) return json(res,403,{error:"admins can't create"});
       const rw=Math.max(0,Math.floor(Number(body.reward)||0));
       const n=Math.max(1,Math.min(20,Math.floor(Number(body.maxWinners)||1)));
       if(!body.title||!body.desc||rw<1) return json(res,400,{error:"title, desc and reward required"});
@@ -205,7 +204,6 @@ const server=http.createServer(async (req,res)=>{
     m=p.match(/^\/api\/challenges\/(\d+)\/submit$/);
     if(m && req.method==="POST"){
       if(u.banned) return json(res,403,{error:"banned"});
-      if(u.isAdmin) return json(res,403,{error:"admins can't compete"});
       const ch=db.challenges.find(c=>c.id===Number(m[1])); if(!ch) return json(res,404,{error:"not found"});
       if(stats(ch).full) return json(res,400,{error:"slots full"});
       if(db.submissions.find(s=>s.chId===ch.id&&s.userId===u.id)) return json(res,400,{error:"you already submitted to this dare"});
