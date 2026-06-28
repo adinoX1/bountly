@@ -17,6 +17,18 @@ const PLAYER_FEE = 0.10, CREATOR_FEE = 0.05;
 const START_CREDITS = 100;
 const MAX_VIDEO = 50 * 1024 * 1024;      // 50 MB cap
 const APP_LINK = process.env.APP_LINK || "";   // optional, e.g. https://t.me/getbountlybot/arena
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";   // web dashboard password (set on Railway)
+
+// ---- web dashboard session tokens (in-memory) ----
+const dashTokens = new Map();   // token -> expiry ms
+function newDashToken(){ const t=crypto.randomBytes(24).toString("hex"); dashTokens.set(t, Date.now()+12*3600e3); return t; }
+function dashAuth(req){
+  const t=(req.headers["authorization"]||"").replace(/^Bearer\s+/i,"");
+  const exp=dashTokens.get(t);
+  if(!exp) return false;
+  if(Date.now()>exp){ dashTokens.delete(t); return false; }
+  return true;
+}
 
 // ---- send a Telegram notification to a user (fire-and-forget) ----
 async function notify(userId, text){
@@ -192,6 +204,102 @@ const server=http.createServer(async (req,res)=>{
         if(ct.includes("multipart/form-data")){ const r=parseMultipart(raw,ct); body=r.parts||{}; files=r.files||{}; }
         else { try{ body=JSON.parse(raw.toString()||"{}"); }catch(e){ body={}; } }
       }catch(e){ return json(res,413,{error:"upload too large (max 50MB)"}); }
+    }
+
+    // ===== WEB DASHBOARD (password-token auth, separate from Telegram) =====
+    if(p.startsWith("/api/dash/")){
+      if(p==="/api/dash/login" && req.method==="POST"){
+        if(!ADMIN_PASSWORD) return json(res,500,{error:"dashboard disabled — set ADMIN_PASSWORD on the server"});
+        if(String(body.password||"")!==ADMIN_PASSWORD) return json(res,401,{error:"wrong password"});
+        return json(res,200,{ token:newDashToken() });
+      }
+      if(!dashAuth(req)) return json(res,401,{error:"unauthorized"});
+
+      if(p==="/api/dash/overview"){
+        const users=Object.values(db.users);
+        const open=db.challenges.filter(c=>!stats(c).full).length;
+        const rewardPool=db.challenges.reduce((a,c)=>a+c.reward*c.maxWinners,0);
+        const paidOut=db.txns.filter(t=>t.type==="payout").reduce((a,t)=>a+t.amount,0);
+        const fees=db.txns.filter(t=>t.type==="fee"||t.type==="commission").reduce((a,t)=>a+t.amount,0);
+        const refunded=db.txns.filter(t=>t.type==="refund").reduce((a,t)=>a+t.amount,0);
+        return json(res,200,{ overview:{
+          users:users.length, banned:users.filter(u2=>u2.banned).length,
+          challenges:db.challenges.length, open, filled:db.challenges.length-open,
+          submissions:db.submissions.length,
+          pending:db.submissions.filter(s=>s.status==="pending").length,
+          approved:db.submissions.filter(s=>s.status==="approved").length,
+          rejected:db.submissions.filter(s=>s.status==="rejected").length,
+          rewardPool, paidOut, fees, refunded,
+          creditsInPlay:users.reduce((a,u2)=>a+u2.credits,0) } });
+      }
+      if(p==="/api/dash/users"){
+        const earn={}; db.txns.filter(t=>t.type==="payout").forEach(t=>earn[t.to]=(earn[t.to]||0)+t.amount);
+        const users=Object.values(db.users).sort((a,b)=>b.joinedAt-a.joinedAt).map(x=>({
+          id:x.id, username:x.username, name:x.name, credits:x.credits, wins:x.wins,
+          banned:!!x.banned, isAdmin:!!x.isAdmin, earned:earn[x.username]||0, joinedAt:x.joinedAt,
+          posted:db.challenges.filter(c=>c.creator===x.username).length,
+          subs:db.submissions.filter(s=>s.userId===x.id).length }));
+        return json(res,200,{ users });
+      }
+      if(p==="/api/dash/challenges"){
+        const list=db.challenges.map(ch=>{ const st=stats(ch);
+          return { id:ch.id, code:ch.code, title:ch.title, creator:ch.creator, reward:ch.reward,
+            maxWinners:ch.maxWinners, slots:[st.winners.length,ch.maxWinners], subs:st.subs, pending:st.pending,
+            full:st.full, createdAt:ch.createdAt }; }).sort((a,b)=>b.id-a.id);
+        return json(res,200,{ challenges:list });
+      }
+      if(p==="/api/dash/txns"){
+        return json(res,200,{ txns:[...db.txns].sort((a,b)=>b.at-a.at).slice(0,300) });
+      }
+      if(p==="/api/dash/queue"){
+        const q=db.submissions.filter(s=>s.status==="pending").sort((a,b)=>a.at-b.at).map(s=>{
+          const ch=db.challenges.find(c=>c.id===s.chId);
+          return { id:s.id, code:ch&&ch.code, title:ch&&ch.title, player:s.player, file:s.file, video:s.video, at:s.at }; });
+        return json(res,200,{ queue:q });
+      }
+      // actions
+      let dm;
+      if((dm=p.match(/^\/api\/dash\/ban\/(.+)$/)) && req.method==="POST"){
+        const tu=db.users[decodeURIComponent(dm[1])]; if(!tu) return json(res,404,{error:"user not found"});
+        if(tu.isAdmin) return json(res,400,{error:"can't ban an admin"});
+        tu.banned=!tu.banned; save(); return json(res,200,{ ok:true, banned:tu.banned });
+      }
+      if((dm=p.match(/^\/api\/dash\/credits\/(.+)$/)) && req.method==="POST"){
+        const tu=db.users[decodeURIComponent(dm[1])]; if(!tu) return json(res,404,{error:"user not found"});
+        const v=Math.max(0,Math.floor(Number(body.credits))); if(!Number.isFinite(v)) return json(res,400,{error:"bad value"});
+        tu.credits=v; tx("admin-adjust","platform",tu.username,v,"dashboard set credits"); save();
+        return json(res,200,{ ok:true, credits:tu.credits });
+      }
+      if((dm=p.match(/^\/api\/dash\/approve\/(\d+)$/)) && req.method==="POST"){
+        const sub=db.submissions.find(s=>s.id===Number(dm[1])); if(!sub||sub.status!=="pending") return json(res,404,{error:"not found"});
+        const ch=db.challenges.find(c=>c.id===sub.chId); sub.status="approved";
+        const won=winnersOf(ch).some(w=>w.id===sub.id);
+        if(won){ const payout=Math.round(ch.reward*(1-PLAYER_FEE)), fee=ch.reward-payout;
+          const w=Object.values(db.users).find(x=>x.username===sub.player); if(w){ w.credits+=payout; w.wins+=1; }
+          tx("payout","escrow",sub.player,payout,ch.code); tx("commission","escrow","platform",fee,ch.code+" 10%");
+          notify(sub.userId, `🏆 Your proof for ${ch.code} was approved — you won ${payout} cr! 🎉`); }
+        else notify(sub.userId, `✅ Your proof for ${ch.code} was approved, but the slot was already taken.`);
+        save(); return json(res,200,{ ok:true, winner:won });
+      }
+      if((dm=p.match(/^\/api\/dash\/reject\/(\d+)$/)) && req.method==="POST"){
+        const sub=db.submissions.find(s=>s.id===Number(dm[1])); if(!sub||sub.status!=="pending") return json(res,404,{error:"not found"});
+        const reason=String(body.reason||"").slice(0,200); if(!reason) return json(res,400,{error:"reason required"});
+        const ch=db.challenges.find(c=>c.id===sub.chId);
+        sub.status="rejected"; sub.reason=reason; save();
+        notify(sub.userId, `❌ Your proof for ${ch?ch.code:"a dare"} was rejected.\nReason: ${reason}`);
+        return json(res,200,{ ok:true });
+      }
+      if((dm=p.match(/^\/api\/dash\/challenge\/(\d+)\/delete$/)) && req.method==="POST"){
+        const idx=db.challenges.findIndex(c=>c.id===Number(dm[1])); if(idx<0) return json(res,404,{error:"not found"});
+        const ch=db.challenges[idx]; const wonCount=winnersOf(ch).length;
+        const refund=Math.max(0, ch.reward*(ch.maxWinners-wonCount));
+        const creator=Object.values(db.users).find(x=>x.username===ch.creator);
+        if(creator && refund>0){ creator.credits+=refund; tx("refund","escrow",ch.creator,refund,ch.code+" deleted"); }
+        db.submissions.filter(s=>s.chId===ch.id).forEach(s=>{ if(s.video){ try{ fs.unlinkSync(path.join(UP_DIR,s.video)); }catch(e){} } });
+        db.submissions=db.submissions.filter(s=>s.chId!==ch.id);
+        db.challenges.splice(idx,1); save(); return json(res,200,{ ok:true, refunded:refund });
+      }
+      return json(res,404,{ error:"unknown dashboard endpoint" });
     }
     const g=getUser(req); if(!g.ok) return json(res,401,{ error:"unauthorized: "+g.error });
     const u=g.user;
@@ -415,8 +523,8 @@ const server=http.createServer(async (req,res)=>{
       res.writeHead(200,{"Content-Type":types[ext]||"application/octet-stream"}); res.end(data); });
   }
 
-  // ---- static (mini app) ----
-  let file = p==="/" ? "/index.html" : p;
+  // ---- static (mini app + dashboard) ----
+  let file = p==="/" ? "/index.html" : (p==="/admin"||p==="/admin/" ? "/admin.html" : p);
   file=path.join(__dirname, path.normalize(file).replace(/^(\.\.[\/\\])+/,""));
   fs.readFile(file,(err,data)=>{
     if(err){ res.writeHead(404); return res.end("Not found"); }
