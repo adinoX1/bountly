@@ -17,8 +17,6 @@ import { fileURLToPath } from 'node:url';
 import * as L from './ledger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BASE_SCHEMA = fs.readFileSync(path.join(__dirname, 'ledger_schema.sql'), 'utf8');
-
 // extra columns/sequence layered on top of the money schema
 const EXTRA_SCHEMA = `
 CREATE SEQUENCE IF NOT EXISTS dare_code_seq;
@@ -37,12 +35,15 @@ const toMicro  = usdt  => Math.round(Number(usdt) * MICRO);
 async function runSql(db, sql) { if (db.exec) return db.exec(sql); return db.query(sql); }
 
 export async function initLedger(db) {
+  const BASE_SCHEMA = fs.readFileSync(path.join(__dirname, 'ledger_schema.sql'), 'utf8');
   await runSql(db, BASE_SCHEMA);
   await runSql(db, EXTRA_SCHEMA);
 }
 
-// acquire a dedicated client for one transaction (prod pg Pool)
+// acquire a dedicated client for one transaction (prod pg Pool).
+// PGlite (tests) has no .connect — it's already a single connection.
 export async function withClient(pool, fn) {
+  if (!pool || !pool.connect) return fn(pool);
   const c = await pool.connect();
   try { return await fn(c); } finally { c.release(); }
 }

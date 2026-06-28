@@ -18,6 +18,8 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { ledgerApi } from "./server_ledger.js";
+import { initLedger } from "./wallet.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -98,6 +100,7 @@ if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 
 // ---- storage: Postgres if DATABASE_URL is set, else local JSON file ----
 const USE_DB = !!process.env.DATABASE_URL;
+const LEDGER = process.env.LEDGER === "1"; // route money/dares through the double-entry ledger
 let pool = null;
 async function initPool(){
   if (!USE_DB) return;
@@ -136,6 +139,7 @@ async function persist(){
 async function initStore(){
   if (USE_DB){
     await initPool();
+    if (LEDGER) { await initLedger(pool); console.log("\u2713 Ledger schema ready (LEDGER=1)"); }
     await pool.query("CREATE TABLE IF NOT EXISTS app_state (id int PRIMARY KEY, data jsonb NOT NULL)");
     const r = await pool.query("SELECT data FROM app_state WHERE id=1");
     if (r.rows.length){ db = r.rows[0].data; console.log("✓ Loaded state from Postgres"); }
@@ -391,6 +395,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { token: newDashToken() });
       }
       if (!dashAuth(req)) return json(res, 401, { error: "unauthorized" });
+      if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: { isAdmin: true, username: "" }, pool, json, notify, fs, pathMod: path, crypto, UP_DIR }); if (handled) return; }
 
       if (p === "/api/dash/overview"){
         const users = Object.values(db.users);
@@ -439,6 +444,7 @@ const server = http.createServer(async (req, res) => {
 
     const g = getUser(req); if (!g.ok) return json(res, 401, { error: "unauthorized: " + g.error });
     const u = g.user;
+    if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: u, pool, json, notify, fs, pathMod: path, crypto, UP_DIR }); if (handled) return; }
 
     if (p === "/api/me") return json(res, 200, { user: pub(u) });
 
