@@ -27,6 +27,8 @@ const ADMIN_IDS      = (process.env.ADMIN_IDS || "").split(",").map(s => s.trim(
 const PORT           = process.env.PORT || 3000;
 const PLAYER_FEE     = 0.10, CREATOR_FEE = 0.05;
 const START_CREDITS  = 100;
+const MAX_WINNERS    = 20;            // hard cap on slots per dare
+const MAX_REWARD     = 1_000_000;     // hard cap on per-slot reward (sanity bound vs Infinity/overflow)
 const MAX_VIDEO      = 50 * 1024 * 1024;            // 50 MB cap
 const APP_LINK       = process.env.APP_LINK || "";  // e.g. https://t.me/getbountlybot/arena
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
@@ -256,12 +258,17 @@ function actApprove(id){
   const sub = db.submissions.find(s => s.id === Number(id));
   if (!sub || sub.status !== "pending") return { code: 404, body: { error: "not found" } };
   const ch = db.challenges.find(c => c.id === sub.chId);
+  if (!ch) return { code: 404, body: { error: "challenge no longer exists" } };
   sub.status = "approved";
   const won = winnersOf(ch).some(w => w.id === sub.id);
   if (won){
     const payout = Math.round(ch.reward * (1 - PLAYER_FEE)), fee = ch.reward - payout;
-    const w = Object.values(db.users).find(x => x.username === sub.player); if (w){ w.credits += payout; w.wins += 1; }
-    tx("payout", "escrow", sub.player, payout, ch.code);
+    // pay the winner by their stable Telegram id — never by the mutable/ambiguous username
+    const w = (sub.userId && db.users[sub.userId]) || Object.values(db.users).find(x => x.username === sub.player);
+    if (w){
+      w.credits += payout; w.wins += 1;
+      tx("payout", "escrow", w.username, payout, ch.code);   // record only when a real recipient was paid
+    }
     tx("commission", "escrow", "platform", fee, ch.code + " 10%");
     notify(sub.userId, `🏆 Your proof for ${ch.code} was approved — you won ${payout} cr! 🎉\n"${ch.title}"`);
   } else {
@@ -301,9 +308,10 @@ function actDeleteChallenge(id){
   if (idx < 0) return { code: 404, body: { error: "not found" } };
   const ch = db.challenges[idx];
   const wonCount = winnersOf(ch).length;
-  const refund = Math.max(0, ch.reward * (ch.maxWinners - wonCount));
-  const creator = Object.values(db.users).find(x => x.username === ch.creator);
-  if (creator && refund > 0){ creator.credits += refund; tx("refund", "escrow", ch.creator, refund, ch.code + " deleted"); }
+  const refund = Math.max(0, Math.round(ch.reward * (ch.maxWinners - wonCount)));
+  // resolve the creator by stable id first; fall back to username only for legacy dares
+  const creator = (ch.creatorId && db.users[ch.creatorId]) || Object.values(db.users).find(x => x.username === ch.creator);
+  if (creator && refund > 0){ creator.credits += refund; tx("refund", "escrow", creator.username, refund, ch.code + " deleted"); }
   // remove submissions + their video files
   db.submissions.filter(s => s.chId === ch.id).forEach(s => { if (s.video){ try { fs.unlinkSync(path.join(UP_DIR, s.video)); } catch (e) {} } });
   db.submissions = db.submissions.filter(s => s.chId !== ch.id);
@@ -468,15 +476,18 @@ const server = http.createServer(async (req, res) => {
 
     if (p === "/api/challenges" && req.method === "POST"){
       if (u.banned) return json(res, 403, { error: "banned" });
-      const rw = Math.max(0, Math.floor(Number(body.reward) || 0));
-      const n = Math.max(1, Math.min(20, Math.floor(Number(body.maxWinners) || 1)));
-      if (!body.title || !body.desc || rw < 1) return json(res, 400, { error: "title, desc and reward required" });
+      const rw = Math.floor(Number(body.reward));
+      const n  = Math.floor(Number(body.maxWinners) || 1);
+      if (!body.title || !body.desc) return json(res, 400, { error: "title, desc and reward required" });
+      if (!Number.isFinite(rw) || rw < 1 || rw > MAX_REWARD)  return json(res, 400, { error: `reward must be a whole number between 1 and ${MAX_REWARD}` });
+      if (!Number.isFinite(n)  || n  < 1 || n  > MAX_WINNERS) return json(res, 400, { error: `winners must be between 1 and ${MAX_WINNERS}` });
       const total = rw * n, fee = Math.round(total * CREATOR_FEE);
       if (u.credits < total + fee) return json(res, 400, { error: `not enough credits (need ${total + fee}, have ${u.credits})` });
       u.credits -= (total + fee);
       const id = ++db.seq.ch, code = "BNT-" + String(id).padStart(3, "0");
       db.challenges.push({ id, code, title: String(body.title).slice(0, 120), desc: String(body.desc).slice(0, 500),
-        rules: String(body.rules || "Say the code in the video.").slice(0, 400), reward: rw, maxWinners: n, creator: u.username, createdAt: Date.now() });
+        rules: String(body.rules || "Say the code in the video.").slice(0, 400), reward: rw, maxWinners: n,
+        creator: u.username, creatorId: u.id, createdAt: Date.now() });
       tx("escrow", u.username, "escrow", total, code); tx("fee", u.username, "platform", fee, code + " 5%"); save();
       return json(res, 200, { ok: true, code, locked: total + fee, credits: u.credits });
     }
@@ -486,7 +497,8 @@ const server = http.createServer(async (req, res) => {
     if (m && req.method === "POST"){
       if (u.banned) return json(res, 403, { error: "banned" });
       const ch = db.challenges.find(c => c.id === Number(m[1])); if (!ch) return json(res, 404, { error: "not found" });
-      if (ch.creator === u.username) return json(res, 403, { error: "you can't complete your own dare" });
+      const isCreator = ch.creatorId ? ch.creatorId === u.id : ch.creator === u.username;
+      if (isCreator) return json(res, 403, { error: "you can't complete your own dare" });
       if (stats(ch).full) return json(res, 400, { error: "slots full" });
       if (db.submissions.find(s => s.chId === ch.id && s.userId === u.id && s.status !== "rejected")) return json(res, 400, { error: "you already submitted to this dare" });
       const id = ++db.seq.sub;
