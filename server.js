@@ -222,15 +222,28 @@ const server=http.createServer(async (req,res)=>{
         const paidOut=db.txns.filter(t=>t.type==="payout").reduce((a,t)=>a+t.amount,0);
         const fees=db.txns.filter(t=>t.type==="fee"||t.type==="commission").reduce((a,t)=>a+t.amount,0);
         const refunded=db.txns.filter(t=>t.type==="refund").reduce((a,t)=>a+t.amount,0);
+        const pending=db.submissions.filter(s=>s.status==="pending").length;
+        const approved=db.submissions.filter(s=>s.status==="approved").length;
+        const rejected=db.submissions.filter(s=>s.status==="rejected").length;
+        // 14-day activity (dares created + proofs submitted per day)
+        const DAY=86400e3, days=14, today=new Date(); today.setHours(0,0,0,0);
+        const start=today.getTime()-(days-1)*DAY;
+        const labels=[], dares=[], proofs=[];
+        for(let i=0;i<days;i++){ const d0=start+i*DAY, d1=d0+DAY;
+          const dt=new Date(d0); labels.push((dt.getMonth()+1)+"/"+dt.getDate());
+          dares.push(db.challenges.filter(c=>c.createdAt>=d0&&c.createdAt<d1).length);
+          proofs.push(db.submissions.filter(s=>s.at>=d0&&s.at<d1).length);
+        }
         return json(res,200,{ overview:{
           users:users.length, banned:users.filter(u2=>u2.banned).length,
           challenges:db.challenges.length, open, filled:db.challenges.length-open,
-          submissions:db.submissions.length,
-          pending:db.submissions.filter(s=>s.status==="pending").length,
-          approved:db.submissions.filter(s=>s.status==="approved").length,
-          rejected:db.submissions.filter(s=>s.status==="rejected").length,
+          submissions:db.submissions.length, pending, approved, rejected,
           rewardPool, paidOut, fees, refunded,
-          creditsInPlay:users.reduce((a,u2)=>a+u2.credits,0) } });
+          creditsInPlay:users.reduce((a,u2)=>a+u2.credits,0),
+          charts:{
+            activity:{ labels, dares, proofs },
+            flows:{ paidOut, fees, refunded },
+            proofStatus:{ approved, rejected, pending } } } });
       }
       if(p==="/api/dash/users"){
         const earn={}; db.txns.filter(t=>t.type==="payout").forEach(t=>earn[t.to]=(earn[t.to]||0)+t.amount);
