@@ -38,7 +38,7 @@ export async function withTx(db, fn) {
   }
 }
 
-async function accountId(db, kind, ownerId = '', currency = 'USDT') {
+export async function accountId(db, kind, ownerId = '', currency = 'USDT') {
   // create-on-demand, return the id
   const sel = await db.query(
     `SELECT id FROM accounts WHERE kind=$1 AND owner_id=$2 AND currency=$3`,
@@ -60,8 +60,8 @@ export async function balanceOf(db, kind, ownerId = '', currency = 'USDT') {
 }
 
 // The heart of the system. `entries` = [{ accountId, amount }], must sum to 0.
-// Must be called inside withTx().
-async function postTx(db, { type, ref = null, meta = null, entries }) {
+// Must be called inside withTx(). Exported for the migration's opening transaction.
+export async function postTx(db, { type, ref = null, meta = null, entries }) {
   const sum = entries.reduce((a, e) => a + e.amount, 0);
   if (sum !== 0) throw new Error(`unbalanced transaction (sum=${sum}) — refused`);
   if (entries.some(e => !Number.isInteger(e.amount))) throw new Error('non-integer amount');
