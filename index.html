@@ -647,7 +647,7 @@ async function openDetail(id){
 }
 function submitProof(id, file){
   if(!file){ toast('Choose a video first'); return; }
-  const fd=new FormData(); fd.append('video',file,file.name);
+  const _sb=$('#submit-proof'); if(_sb){ if(_sb.dataset.busy==='1') return; _sb.dataset.busy='1'; _sb.disabled=true; _sb.style.opacity='.6'; } const _rel=()=>{ if(_sb){ _sb.dataset.busy=''; _sb.disabled=false; _sb.style.opacity=''; } }; const fd=new FormData(); fd.append('video',file,file.name);
   const xhr=new XMLHttpRequest();
   xhr.open('POST','/api/challenges/'+id+'/submit');
   xhr.setRequestHeader('X-Telegram-Init',INIT);
@@ -655,8 +655,8 @@ function submitProof(id, file){
   xhr.upload.onprogress=e=>{ if(e.lengthComputable&&fill) fill.style.width=Math.round(e.loaded/e.total*100)+'%'; };
   xhr.onload=()=>{ let r={}; try{r=JSON.parse(xhr.responseText)}catch(_){}
     if(xhr.status===200){ toast('Proof submitted! Waiting for review.'); haptic('success'); confetti(); closeDetail(); loadChallenges(); }
-    else { toast(r.error||'upload failed'); if(bar)bar.classList.remove('show'); } };
-  xhr.onerror=()=>toast('network error');
+    else { toast(r.error||'upload failed'); if(bar)bar.classList.remove('show'); _rel(); } };
+  xhr.onerror=()=>{ toast('network error'); if(bar)bar.classList.remove('show'); _rel(); };
   xhr.send(fd);
 }
 function closeDetail(){ $('#detail').classList.remove('show'); }
@@ -768,7 +768,7 @@ async function loadProfile(){
         <div class="info"><div class="t">${esc(s.title||s.code)}</div><div class="m">${esc(s.code)} · ${esc(s.file)}${s.reason?' · '+esc(s.reason):''}</div></div>
         <div style="display:flex;gap:8px;flex-shrink:0">
         ${s.won?`<button class="btn btn-lime btn-sm" data-sharewin="${esc(s.code)}">𝕏 Share</button>`:''}
-        ${s.video?`<button class="btn btn-out btn-sm" onclick="window.open('/uploads/${s.video}','_blank')">video</button>`:''}</div></div>`;
+        ${s.video?`<button class="btn btn-out btn-sm" onclick="window.open('/uploads/${encodeURIComponent(s.video)}','_blank')">video</button>`:''}</div></div>`;
     }).join(''):'<div style="color:var(--muted)">No submissions yet. Take a dare!</div>';
     $('#p-subs').querySelectorAll('[data-sharewin]').forEach(b=>b.onclick=()=>shareWin(b.dataset.sharewin));
     $('#p-dares').innerHTML=a.challenges.length?a.challenges.map(b=>{
