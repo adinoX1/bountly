@@ -240,6 +240,7 @@ const server=http.createServer(async (req,res)=>{
           submissions:db.submissions.length, pending, approved, rejected,
           rewardPool, paidOut, fees, refunded,
           creditsInPlay:users.reduce((a,u2)=>a+u2.credits,0),
+          txnsCount:db.txns.length,
           charts:{
             activity:{ labels, dares, proofs },
             flows:{ paidOut, fees, refunded },
