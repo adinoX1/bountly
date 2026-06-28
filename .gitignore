@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# secrets & local config — NEVER commit these
+.env
+.env.local
+
+# runtime data (contains every user, their Telegram IDs, credits, etc.)
+data.json
+
+# uploaded video proofs
+uploads/
+
+# logs / os junk
+*.log
+.DS_Store

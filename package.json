@@ -1,11 +1,16 @@
 {
   "name": "bountly-server",
-  "version": "2.0.0",
-  "description": "Bountly — Telegram Mini App backend (Postgres-backed)",
+  "version": "2.1.0",
+  "description": "Bountly — Telegram Mini App backend (credits-based dare/bounty platform)",
   "type": "module",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check server.js"
   },
   "dependencies": {
     "pg": "^8.13.1"
