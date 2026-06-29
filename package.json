@@ -23,7 +23,7 @@
   },
   "optionalDependencies": {
     "@ton/ton": "^15.1.0",
-    "@ton/core": "^0.59.0",
+    "@ton/core": "^0.63.0",
     "@ton/crypto": "^3.3.0"
   },
   "devDependencies": {
