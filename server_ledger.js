@@ -15,6 +15,7 @@
 // as the owner key — keeps the UI working unchanged).
 // ============================================================
 import * as wallet from './wallet.js';
+import { cfg as tonCfg } from './ton.js';
 
 const tx = (ctx, fn) => wallet.withClient(ctx.pool, fn);
 
@@ -116,6 +117,14 @@ export async function ledgerApi(ctx) {
   // ----- leaderboard -----
   if (p === '/api/leaderboard' && method === 'GET') {
     json(res, 200, { leaderboard: (await wallet.leaderboard(pool)).map(x => ({ username: x.username, wins: x.wins, earned: x.earnedUsdt })) });
+    return true;
+  }
+
+  // ----- wallet info: where/how to deposit (address + comment = your username) -----
+  if (p === '/api/wallet/info' && method === 'GET') {
+    const c = tonCfg();
+    json(res, 200, { network: c.network, address: c.deposit, comment: uname,
+      configured: c.configured, balance: await wallet.balance(pool, uname) });
     return true;
   }
 
