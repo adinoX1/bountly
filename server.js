@@ -395,7 +395,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { token: newDashToken() });
       }
       if (!dashAuth(req)) return json(res, 401, { error: "unauthorized" });
-      if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: { isAdmin: true, username: "" }, pool, json, notify, fs, pathMod: path, crypto, UP_DIR }); if (handled) return; }
+      if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: { isAdmin: true, username: "" }, pool, json, notify, fs, pathMod: path, crypto, UP_DIR, db, save }); if (handled) return; }
 
       if (p === "/api/dash/overview"){
         const users = Object.values(db.users);
@@ -444,7 +444,7 @@ const server = http.createServer(async (req, res) => {
 
     const g = getUser(req); if (!g.ok) return json(res, 401, { error: "unauthorized: " + g.error });
     const u = g.user;
-    if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: u, pool, json, notify, fs, pathMod: path, crypto, UP_DIR }); if (handled) return; }
+    if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: u, pool, json, notify, fs, pathMod: path, crypto, UP_DIR, db, save }); if (handled) return; }
 
     if (p === "/api/me") return json(res, 200, { user: pub(u) });
 

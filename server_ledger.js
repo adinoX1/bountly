@@ -172,5 +172,107 @@ export async function ledgerApi(ctx) {
     return true;
   }
 
+  // ===== dashboard / admin analytics (LEDGER-backed) =====
+  // identity (banned/isAdmin/name/joinedAt) lives in the blob; money in the ledger.
+  const isDash = p.startsWith('/api/dash/');
+  const isAdminAnalytics = p.startsWith('/api/admin/') &&
+    /(users|challenges|txns)$|\/(ban|credits)\//.test(p);
+  if (isDash || isAdminAnalytics) {
+    if (isAdminAnalytics && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
+    const blobUsers = (ctx.db && ctx.db.users) ? Object.values(ctx.db.users) : [];
+
+    async function usersView() {
+      const out = [];
+      for (const u of blobUsers) {
+        const a = (await pool.query(
+          `SELECT
+             COALESCE((SELECT SUM(e.amount) FROM ledger_entries e JOIN ledger_tx t ON t.id=e.tx_id
+                JOIN accounts ac ON ac.id=e.account_id
+               WHERE t.type='payout' AND ac.kind='user' AND ac.owner_id=$1 AND e.amount>0),0) AS earned,
+             (SELECT count(*) FROM submissions s WHERE s.hunter_id=$1 AND s.status='approved')::int AS wins,
+             (SELECT count(*) FROM dares d WHERE d.creator_id=$1)::int AS posted,
+             (SELECT count(*) FROM submissions s WHERE s.hunter_id=$1)::int AS subs`, [u.username])).rows[0];
+        out.push({ id: u.id, username: u.username, name: u.name,
+          credits: await wallet.balance(pool, u.username), wins: a.wins,
+          banned: !!u.banned, isAdmin: !!u.isAdmin, earned: Number(a.earned) / wallet.MICRO,
+          joinedAt: u.joinedAt, posted: a.posted, subs: a.subs });
+      }
+      return out.sort((x, y) => (y.joinedAt || 0) - (x.joinedAt || 0));
+    }
+
+    async function txnsView() {
+      const r = await pool.query(`
+        SELECT t.id, t.type, t.ref, EXTRACT(EPOCH FROM t.created_at)*1000 AS at,
+          (SELECT ac.kind||CASE WHEN ac.owner_id<>'' THEN ':'||ac.owner_id ELSE '' END
+             FROM ledger_entries e JOIN accounts ac ON ac.id=e.account_id WHERE e.tx_id=t.id ORDER BY e.amount ASC  LIMIT 1) AS frm,
+          (SELECT ac.kind||CASE WHEN ac.owner_id<>'' THEN ':'||ac.owner_id ELSE '' END
+             FROM ledger_entries e JOIN accounts ac ON ac.id=e.account_id WHERE e.tx_id=t.id ORDER BY e.amount DESC LIMIT 1) AS too,
+          (SELECT MAX(e.amount) FROM ledger_entries e WHERE e.tx_id=t.id) AS amount
+        FROM ledger_tx t ORDER BY t.id DESC LIMIT 300`);
+      return r.rows.map(x => ({ id: Number(x.id), at: Number(x.at), type: x.type,
+        from: x.frm, to: x.too, amount: Number(x.amount) / wallet.MICRO, note: x.ref || '' }));
+    }
+
+    async function overview() {
+      const dares = await wallet.listDares(pool);
+      const open = dares.filter(d => !d.full).length;
+      const q = (await pool.query(`
+        SELECT
+          (SELECT count(*) FROM submissions)::int AS subs,
+          (SELECT count(*) FROM submissions WHERE status='pending')::int AS pending,
+          (SELECT count(*) FROM submissions WHERE status='approved')::int AS approved,
+          (SELECT count(*) FROM submissions WHERE status='rejected')::int AS rejected,
+          (SELECT count(*) FROM ledger_tx)::int AS txc,
+          COALESCE((SELECT SUM(balance) FROM accounts WHERE kind='user'),0) AS inplay,
+          COALESCE((SELECT SUM(balance) FROM accounts WHERE kind='platform_fees'),0) AS fees,
+          COALESCE((SELECT SUM(e.amount) FROM ledger_entries e JOIN ledger_tx t ON t.id=e.tx_id
+                      JOIN accounts ac ON ac.id=e.account_id
+                      WHERE t.type='payout' AND ac.kind='user' AND e.amount>0),0) AS paid,
+          COALESCE((SELECT SUM(e.amount) FROM ledger_entries e JOIN ledger_tx t ON t.id=e.tx_id
+                      WHERE t.type='refund' AND e.amount>0),0) AS refunded`)).rows[0];
+      const DAY = 86400e3, days = 14, today = new Date(); today.setHours(0,0,0,0);
+      const start = today.getTime() - (days - 1) * DAY;
+      const labels = [], dd = [], pp = [];
+      const dRows = (await pool.query(`SELECT EXTRACT(EPOCH FROM created_at)*1000 AS at FROM dares`)).rows.map(x=>Number(x.at));
+      const sRows = (await pool.query(`SELECT EXTRACT(EPOCH FROM created_at)*1000 AS at FROM submissions`)).rows.map(x=>Number(x.at));
+      for (let i = 0; i < days; i++) { const d0 = start + i*DAY, d1 = d0+DAY; const dt = new Date(d0);
+        labels.push((dt.getMonth()+1)+'/'+dt.getDate());
+        dd.push(dRows.filter(a=>a>=d0&&a<d1).length); pp.push(sRows.filter(a=>a>=d0&&a<d1).length); }
+      const rewardPool = dares.filter(d=>!d.full).reduce((a,d)=>a+d.reward*d.maxWinners,0);
+      const fees = Number(q.fees)/wallet.MICRO, paidOut = Number(q.paid)/wallet.MICRO, refunded = Number(q.refunded)/wallet.MICRO;
+      return { users: blobUsers.length, banned: blobUsers.filter(u=>u.banned).length,
+        challenges: dares.length, open, filled: dares.length - open,
+        submissions: q.subs, pending: q.pending, approved: q.approved, rejected: q.rejected,
+        rewardPool, paidOut, fees, refunded, creditsInPlay: Number(q.inplay)/wallet.MICRO, txnsCount: q.txc,
+        charts: { activity: { labels, dares: dd, proofs: pp }, flows: { paidOut, fees, refunded },
+                  proofStatus: { approved: q.approved, rejected: q.rejected, pending: q.pending } } };
+    }
+
+    if (p.endsWith('/overview')   && method === 'GET') { json(res, 200, { overview: await overview() }); return true; }
+    if (p.endsWith('/users')      && method === 'GET') { json(res, 200, { users: await usersView() }); return true; }
+    if (p.endsWith('/txns')       && method === 'GET') { json(res, 200, { txns: await txnsView() }); return true; }
+    if (p.endsWith('/challenges') && method === 'GET') { json(res, 200, { challenges: await wallet.listDares(pool) }); return true; }
+
+    let dm;
+    if ((dm = p.match(/\/ban\/([^/]+)$/)) && method === 'POST') {
+      const tu = ctx.db && ctx.db.users[decodeURIComponent(dm[1])];
+      if (!tu) { json(res, 404, { error: 'user not found' }); return true; }
+      if (tu.isAdmin) { json(res, 400, { error: "can't ban an admin" }); return true; }
+      tu.banned = !tu.banned; if (ctx.save) ctx.save();
+      json(res, 200, { ok: true, banned: tu.banned }); return true;
+    }
+    if ((dm = p.match(/\/credits\/([^/]+)$/)) && method === 'POST') {
+      const tu = ctx.db && ctx.db.users[decodeURIComponent(dm[1])];
+      if (!tu) { json(res, 404, { error: 'user not found' }); return true; }
+      const target = Math.max(0, Math.floor(Number((ctx.body || {}).credits)));
+      if (!Number.isFinite(target)) { json(res, 400, { error: 'bad value' }); return true; }
+      const cur = await wallet.balance(pool, tu.username);
+      const delta = target - cur;
+      if (delta > 0) await tx(ctx, c => wallet.deposit(c, tu.username, delta, 'admin-set'));
+      else if (delta < 0) await tx(ctx, c => wallet.withdraw(c, tu.username, -delta, 'admin-set'));
+      json(res, 200, { ok: true, credits: target }); return true;
+    }
+  }
+
   return false; // not a money/dare route → let server.js handle it
 }
