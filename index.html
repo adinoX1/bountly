@@ -478,6 +478,7 @@ header{padding:0}
   <!-- ===== PROFILE ===== -->
   <section class="view" data-view="profile">
     <div class="page-h"><h2>Profile</h2><p>Your credits, dares and proof history.</p></div>
+<button class="btn btn-lime" id="deposit-btn" style="margin:0 0 20px">💰 Deposit / Add credits</button>
     <div class="strip" id="p-strip" style="margin:0 0 30px"></div>
     <div class="sec-label">My submissions</div>
     <div id="p-subs"></div>
@@ -499,6 +500,14 @@ header{padding:0}
     <button class="modal-x" id="player-x">✕</button>
     <div id="player-body"></div>
   </div>
+</div>
+
+<div id="wallet" class="modal-overlay">
+<div class="modal">
+<button class="modal-x" id="wallet-x">✕</button>
+<div class="d-title">💰 Add credits</div>
+<div id="wallet-body"><div style="color:var(--muted);text-align:center;padding:30px">Loading…</div></div>
+</div>
 </div>
 
 <footer>
@@ -959,6 +968,28 @@ function confetti(){
 
 // haptic on all lime buttons (press feel)
 document.addEventListener('click',e=>{ if(e.target.closest('.btn')) haptic('light'); },true);
+// ---- crypto deposit screen ----
+function copyText(t){ try{navigator.clipboard.writeText(t);}catch(e){} toast('Copied'); haptic('light'); }
+async function openWallet(){
+$('#wallet').classList.add('show'); haptic('light');
+const b=$('#wallet-body'); b.innerHTML='<div style="color:var(--muted);text-align:center;padding:30px">Loading…</div>';
+try{ const w=await api('/api/wallet/info');
+if(!w.configured){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
+b.innerHTML=`<div class="d-box"><div class="lbl">Your balance</div><div class="d-reward">${w.balance} cr</div></div>
+<div class="d-box"><div class="lbl">1 · Send USDT on ${esc(w.network)} to this address</div>
+<div class="id-box" style="word-break:break-all">${esc(w.address)}</div>
+<button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.address)}">Copy address</button></div>
+<div class="d-box"><div class="lbl">2 · Set THIS as the comment / memo</div>
+<div class="id-box">${esc(w.comment)}</div>
+<button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.comment)}">Copy comment</button></div>
+<div class="d-box" style="font-size:13px;color:var(--muted)">After the transfer confirms on-chain, your credits appear automatically. Without the comment we cannot match your deposit.</div>`;
+b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
+}catch(e){ b.innerHTML=`<div style="color:var(--muted);text-align:center;padding:20px">${esc(e.message)}</div>`; }
+}
+const _wx=$('#wallet-x'); if(_wx)_wx.onclick=()=>$('#wallet').classList.remove('show');
+const _wo=$('#wallet'); if(_wo)_wo.onclick=e=>{ if(e.target.id==='wallet')$('#wallet').classList.remove('show'); };
+const _db=$('#deposit-btn'); if(_db)_db.onclick=openWallet;
+
 </script>
 </body>
 </html>
