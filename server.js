@@ -18,6 +18,10 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { ledgerApi } from "./server_ledger.js";
+import { initLedger, withClient } from "./wallet.js";
+import { migrateAppState } from "./migrate_to_ledger.mjs";
+import { startDepositWatcher } from "./ton.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -98,6 +102,7 @@ if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 
 // ---- storage: Postgres if DATABASE_URL is set, else local JSON file ----
 const USE_DB = !!process.env.DATABASE_URL;
+const LEDGER = process.env.LEDGER === "1"; // route money/dares through the double-entry ledger
 let pool = null;
 async function initPool(){
   if (!USE_DB) return;
@@ -136,10 +141,20 @@ async function persist(){
 async function initStore(){
   if (USE_DB){
     await initPool();
+    if (LEDGER) { await initLedger(pool); console.log("\u2713 Ledger schema ready (LEDGER=1)"); }
     await pool.query("CREATE TABLE IF NOT EXISTS app_state (id int PRIMARY KEY, data jsonb NOT NULL)");
     const r = await pool.query("SELECT data FROM app_state WHERE id=1");
     if (r.rows.length){ db = r.rows[0].data; console.log("✓ Loaded state from Postgres"); }
     else { seed(); await persist(); console.log("✓ Seeded fresh Postgres database"); }
+    if (LEDGER) {
+      try {
+        const res = await withClient(pool, c => migrateAppState(c, db));
+        console.log("✓ Ledger migration applied:", JSON.stringify(res));
+      } catch (e) {
+        if (/already applied/i.test(e.message)) console.log("✓ Ledger already migrated");
+        else { console.error("Ledger migration FAILED:", e.message); throw e; }
+      }
+    }
   } else {
     try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); console.log("✓ Loaded local data.json"); }
     catch (e){ seed(); fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); console.log("✓ Created local data.json"); }
@@ -391,6 +406,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { token: newDashToken() });
       }
       if (!dashAuth(req)) return json(res, 401, { error: "unauthorized" });
+      if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: { isAdmin: true, username: "" }, pool, json, notify, fs, pathMod: path, crypto, UP_DIR, db, save }); if (handled) return; }
 
       if (p === "/api/dash/overview"){
         const users = Object.values(db.users);
@@ -439,6 +455,7 @@ const server = http.createServer(async (req, res) => {
 
     const g = getUser(req); if (!g.ok) return json(res, 401, { error: "unauthorized: " + g.error });
     const u = g.user;
+    if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: u, pool, json, notify, fs, pathMod: path, crypto, UP_DIR, db, save }); if (handled) return; }
 
     if (p === "/api/me") return json(res, 200, { user: pub(u) });
 
@@ -609,4 +626,5 @@ const server = http.createServer(async (req, res) => {
 initStore()
   .then(() => server.listen(PORT, () => console.log(
     `Bountly running on http://localhost:${PORT} · storage: ${USE_DB ? "Postgres" : "local JSON"} · uploads: ${UP_DIR} · BOT_TOKEN ${BOT_TOKEN ? "set" : "NOT set (DEV mode)"}`)))
+  .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool); })
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });

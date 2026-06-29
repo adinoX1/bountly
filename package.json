@@ -11,10 +11,20 @@
     "start": "node server.js",
     "dev": "node server.js",
     "check": "node --check server.js",
-    "test:ledger": "node test_ledger.mjs"
+    "test:ledger": "node test_ledger.mjs",
+    "test:migrate": "node test_migrate.mjs",
+    "test:wallet": "node test_wallet.mjs",
+    "test:server": "node test_server_ledger.mjs",
+    "test:ton": "node test_ton.mjs",
+    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:ton"
   },
   "dependencies": {
     "pg": "^8.13.1"
+  },
+  "optionalDependencies": {
+    "@ton/ton": "^15.1.0",
+    "@ton/core": "^0.59.0",
+    "@ton/crypto": "^3.3.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3"
