@@ -20,6 +20,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ledgerApi } from "./server_ledger.js";
 import { initLedger } from "./wallet.js";
+import { startDepositWatcher } from "./ton.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -615,4 +616,5 @@ const server = http.createServer(async (req, res) => {
 initStore()
   .then(() => server.listen(PORT, () => console.log(
     `Bountly running on http://localhost:${PORT} · storage: ${USE_DB ? "Postgres" : "local JSON"} · uploads: ${UP_DIR} · BOT_TOKEN ${BOT_TOKEN ? "set" : "NOT set (DEV mode)"}`)))
+  .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool); })
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });
