@@ -19,7 +19,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ledgerApi } from "./server_ledger.js";
-import { initLedger } from "./wallet.js";
+import { initLedger, withClient } from "./wallet.js";
+import { migrateAppState } from "./migrate_to_ledger.mjs";
 import { startDepositWatcher } from "./ton.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -145,6 +146,15 @@ async function initStore(){
     const r = await pool.query("SELECT data FROM app_state WHERE id=1");
     if (r.rows.length){ db = r.rows[0].data; console.log("✓ Loaded state from Postgres"); }
     else { seed(); await persist(); console.log("✓ Seeded fresh Postgres database"); }
+    if (LEDGER) {
+      try {
+        const res = await withClient(pool, c => migrateAppState(c, db));
+        console.log("✓ Ledger migration applied:", JSON.stringify(res));
+      } catch (e) {
+        if (/already applied/i.test(e.message)) console.log("✓ Ledger already migrated");
+        else { console.error("Ledger migration FAILED:", e.message); throw e; }
+      }
+    }
   } else {
     try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); console.log("✓ Loaded local data.json"); }
     catch (e){ seed(); fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); console.log("✓ Created local data.json"); }

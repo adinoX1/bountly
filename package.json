@@ -19,7 +19,9 @@
     "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:ton"
   },
   "dependencies": {
-    "pg": "^8.13.1",
+    "pg": "^8.13.1"
+  },
+  "optionalDependencies": {
     "@ton/ton": "^15.1.0",
     "@ton/core": "^0.59.0",
     "@ton/crypto": "^3.3.0"
