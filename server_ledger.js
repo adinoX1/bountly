@@ -185,7 +185,7 @@ export async function ledgerApi(ctx) {
   // identity (banned/isAdmin/name/joinedAt) lives in the blob; money in the ledger.
   const isDash = p.startsWith('/api/dash/');
   const isAdminAnalytics = p.startsWith('/api/admin/') &&
-    /(users|challenges|txns)$|\/(ban|credits)\//.test(p);
+    /(users|challenges|txns|deposits)$|\/(ban|credits)\//.test(p);
   if (isDash || isAdminAnalytics) {
     if (isAdminAnalytics && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
     const blobUsers = (ctx.db && ctx.db.users) ? Object.values(ctx.db.users) : [];
@@ -220,6 +220,18 @@ export async function ledgerApi(ctx) {
         FROM ledger_tx t ORDER BY t.id DESC LIMIT 300`);
       return r.rows.map(x => ({ id: Number(x.id), at: Number(x.at), type: x.type,
         from: x.frm, to: x.too, amount: Number(x.amount) / wallet.MICRO, note: x.ref || '' }));
+    }
+
+    async function depositsView() {
+      const r = await pool.query(`
+        SELECT t.id, t.ref, EXTRACT(EPOCH FROM t.created_at)*1000 AS at,
+          (SELECT ac.owner_id FROM ledger_entries e JOIN accounts ac ON ac.id=e.account_id
+             WHERE e.tx_id=t.id AND ac.kind='user' AND e.amount>0 LIMIT 1) AS username,
+          (SELECT MAX(e.amount) FROM ledger_entries e WHERE e.tx_id=t.id) AS amount
+        FROM ledger_tx t WHERE t.type='deposit' ORDER BY t.id DESC LIMIT 300`);
+      return r.rows.map(x => ({ id: Number(x.id), at: Number(x.at),
+        username: x.username || '', amount: Number(x.amount) / wallet.MICRO,
+        ref: x.ref || '', source: (x.ref === 'admin-set' ? 'admin' : 'on-chain') }));
     }
 
     async function overview() {
@@ -260,6 +272,7 @@ export async function ledgerApi(ctx) {
     if (p.endsWith('/overview')   && method === 'GET') { json(res, 200, { overview: await overview() }); return true; }
     if (p.endsWith('/users')      && method === 'GET') { json(res, 200, { users: await usersView() }); return true; }
     if (p.endsWith('/txns')       && method === 'GET') { json(res, 200, { txns: await txnsView() }); return true; }
+    if (p.endsWith('/deposits')   && method === 'GET') { json(res, 200, { deposits: await depositsView() }); return true; }
     if (p.endsWith('/challenges') && method === 'GET') { json(res, 200, { challenges: await wallet.listDares(pool) }); return true; }
 
     let dm;
