@@ -150,14 +150,14 @@ input[type=number]{width:90px;display:inline-block}
     <button data-p="queue">Review <span class="cnt" id="cnt-queue"></span></button>
     <button data-p="users">Users <span class="cnt" id="cnt-users"></span></button>
     <button data-p="dares">Dares <span class="cnt" id="cnt-dares"></span></button>
-    <button data-p="ledger">Ledger <span class="cnt" id="cnt-ledger"></span></button>
+    <button data-p="ledger">Ledger <span class="cnt" id="cnt-ledger"></span></button> <button data-p="deposits">Deposits</button>
   </div>
 
   <div class="panel active" data-panel="overview" id="p-overview"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="queue" id="p-queue"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="users" id="p-users"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="dares" id="p-dares"><div class="loading">Loading…</div></div>
-  <div class="panel" data-panel="ledger" id="p-ledger"><div class="loading">Loading…</div></div>
+  <div class="panel" data-panel="ledger" id="p-ledger"><div class="loading">Loading…</div></div> <div class="panel" data-panel="deposits" id="p-deposits"><div class="loading">Loading…</div></div>
 </div>
 
 <div id="tip"></div>
@@ -206,7 +206,7 @@ function load(which){
   else if(which==='queue') loadQueue();
   else if(which==='users') loadUsers();
   else if(which==='dares') loadDares();
-  else if(which==='ledger') loadLedger();
+  else if(which==='ledger') loadLedger(); else if(which==='deposits') loadDeposits();
 }
 
 // ---- overview ----
@@ -388,7 +388,7 @@ async function loadLedger(){
 }
 
 // boot
-if(TOKEN) showApp(); else $('#login').style.display='flex';
+/* ---- deposits ---- */ async function loadDeposits(){ try{ const {deposits}=await api('/api/dash/deposits'); const total=deposits.reduce((a,d)=>a+d.amount,0); const sum=`<div class="sumbar"><div class="chip"><b>${deposits.length}</b>deposits</div><div class="chip lime"><b>${total}</b>USDT deposited</div></div>`; const head=`<div class="l" style="color:var(--muted);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em"><span style="flex:2">When</span><span style="flex:2">User</span><span style="flex:1;text-align:right">Amount</span><span style="flex:1;text-align:right">Source</span></div>`; $('#p-deposits').innerHTML=sum+(deposits.length?`<div class="ledger">`+head+deposits.map(d=>`<div class="l"><span style="flex:2" class="muted">${fdate(d.at)}</span><span style="flex:2"><b>@${esc(d.username)}</b></span><span style="flex:1;text-align:right" class="amt t-payout">${d.amount} USDT</span><span style="flex:1;text-align:right"><span class="tag ${d.source==='on-chain'?'live':'admin'}">${esc(d.source)}</span></span></div>`).join('')+`</div>`:'<div class="loading">No deposits yet.</div>'); }catch(e){ $('#p-deposits').innerHTML=`<div class="loading">${esc(e.message)}</div>`; } } if(TOKEN) showApp(); else $('#login').style.display='flex';
 </script>
 </body>
 </html>
