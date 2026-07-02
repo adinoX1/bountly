@@ -124,7 +124,7 @@ export async function ledgerApi(ctx) {
   if (p === '/api/wallet/info' && method === 'GET') {
     const c = tonCfg();
     json(res, 200, { network: c.network, address: c.deposit, comment: uname,
-      configured: c.configured, balance: await wallet.balance(pool, uname) });
+      configured: c.configured, jetton: c.jetton, balance: await wallet.balance(pool, uname) });
     return true;
   }
 
