@@ -974,7 +974,7 @@ async function openWallet(){
 $('#wallet').classList.add('show'); haptic('light');
 const b=$('#wallet-body'); b.innerHTML='<div style="color:var(--muted);text-align:center;padding:30px">Loading…</div>';
 try{ const w=await api('/api/wallet/info');
-if(!w.configured){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
+if(!w.address){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
 b.innerHTML=`<div class="d-box"><div class="lbl">Your balance</div><div class="d-reward">${w.balance} cr</div></div>
 <div class="d-box"><div class="lbl">1 · Send USDT on ${esc(w.network)} to this address</div>
 <div class="id-box" style="word-break:break-all">${esc(w.address)}</div>
@@ -982,7 +982,7 @@ b.innerHTML=`<div class="d-box"><div class="lbl">Your balance</div><div class="d
 <div class="d-box"><div class="lbl">2 · Set THIS as the comment / memo</div>
 <div class="id-box">${esc(w.comment)}</div>
 <button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.comment)}">Copy comment</button></div>
-<div class="d-box" style="font-size:13px;color:var(--muted)">After the transfer confirms on-chain, your credits appear automatically. Without the comment we cannot match your deposit.</div>`;
+<div class="d-box" style="font-size:13px;color:var(--muted)">${w.configured?'After the transfer confirms on-chain, your credits appear automatically. Without the comment we cannot match your deposit.':'Testnet: send with the comment above — an admin credits you after it confirms. Without the comment we cannot match your deposit.'}</div>`;
 b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
 }catch(e){ b.innerHTML=`<div style="color:var(--muted);text-align:center;padding:20px">${esc(e.message)}</div>`; }
 }
