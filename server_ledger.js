@@ -16,6 +16,7 @@
 // ============================================================
 import * as wallet from './wallet.js';
 import { cfg as tonCfg } from './ton.js';
+import * as solana from './solana.js';
 
 const tx = (ctx, fn) => wallet.withClient(ctx.pool, fn);
 
@@ -123,8 +124,14 @@ export async function ledgerApi(ctx) {
   // ----- wallet info: where/how to deposit (address + comment = your username) -----
   if (p === '/api/wallet/info' && method === 'GET') {
     const c = tonCfg();
+    let sol = null;
+    try {
+      const sc = solana.cfg();
+      if (sc.configured) sol = { network: sc.network, address: await solana.allocateAddress(pool, uname), mint: sc.usdcMint, min: sc.minDeposit };
+    } catch (e) { /* solana off or not ready — omit */ }
     json(res, 200, { network: c.network, address: c.deposit, comment: uname,
-      configured: c.configured, jetton: c.jetton, balance: await wallet.balance(pool, uname) });
+      configured: c.configured, jetton: c.jetton, sol,
+      balance: await wallet.balance(pool, uname) });
     return true;
   }
 
