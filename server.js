@@ -22,6 +22,7 @@ import { ledgerApi } from "./server_ledger.js";
 import { initLedger, withClient } from "./wallet.js";
 import { migrateAppState } from "./migrate_to_ledger.mjs";
 import { startDepositWatcher } from "./ton.js";
+import * as solana from "./solana.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -103,6 +104,7 @@ if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 // ---- storage: Postgres if DATABASE_URL is set, else local JSON file ----
 const USE_DB = !!process.env.DATABASE_URL;
 const LEDGER = process.env.LEDGER === "1"; // route money/dares through the double-entry ledger
+const SOLANA = process.env.SOLANA === "1"; // enable per-user Solana USDC deposits (Helius)
 let pool = null;
 async function initPool(){
   if (!USE_DB) return;
@@ -141,7 +143,7 @@ async function persist(){
 async function initStore(){
   if (USE_DB){
     await initPool();
-    if (LEDGER) { await initLedger(pool); console.log("\u2713 Ledger schema ready (LEDGER=1)"); }
+    if (LEDGER) { await initLedger(pool); console.log("✓ Ledger schema ready (LEDGER=1)"); }
     await pool.query("CREATE TABLE IF NOT EXISTS app_state (id int PRIMARY KEY, data jsonb NOT NULL)");
     const r = await pool.query("SELECT data FROM app_state WHERE id=1");
     if (r.rows.length){ db = r.rows[0].data; console.log("✓ Loaded state from Postgres"); }
@@ -395,6 +397,14 @@ const server = http.createServer(async (req, res) => {
       } catch (e){ return json(res, 413, { error: "upload too large (max 50MB)" }); }
     }
 
+    // ===== Solana deposit webhook (Helius) — NO Telegram auth; verifies its own shared secret =====
+    if (SOLANA && USE_DB && p === "/api/solana/webhook" && req.method === "POST"){
+      const r = await solana.handleWebhook(pool, { headers: req.headers, body, log: console })
+        .catch(e => { console.error("solana webhook error:", e.message); return { ok: false, status: 500 }; });
+      if (!r.ok) return json(res, r.status || 400, { error: "webhook rejected" });
+      return json(res, 200, { ok: true, credited: r.credited });
+    }
+
     // ===== WEB DASHBOARD (password-token auth, separate from Telegram) =====
     if (p.startsWith("/api/dash/")){
       if (p === "/api/dash/login" && req.method === "POST"){
@@ -627,4 +637,5 @@ initStore()
   .then(() => server.listen(PORT, () => console.log(
     `Bountly running on http://localhost:${PORT} · storage: ${USE_DB ? "Postgres" : "local JSON"} · uploads: ${UP_DIR} · BOT_TOKEN ${BOT_TOKEN ? "set" : "NOT set (DEV mode)"}`)))
   .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool); })
+  .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool).then(() => console.log("✓ Solana deposits enabled (SOLANA=1)")).catch(e => console.error("Solana schema:", e.message)); })
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });
