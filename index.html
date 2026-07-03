@@ -970,7 +970,7 @@ function confetti(){
 document.addEventListener('click',e=>{ if(e.target.closest('.btn')) haptic('light'); },true);
 // ---- crypto deposit screen ----
 function copyText(t){ try{navigator.clipboard.writeText(t);}catch(e){} toast('Copied'); haptic('light'); }
-function _depQR(t){var el=document.getElementById('dep-qr');if(!el)return;var d=function(){try{el.innerHTML='';new QRCode(el,{text:t,width:176,height:176,correctLevel:QRCode.CorrectLevel.M});}catch(e){}};if(window.QRCode)return d();var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=d;s.onerror=function(){el.innerHTML='<div style="color:var(--muted);font-size:12px">Scan unavailable — use the button</div>';};document.head.appendChild(s);}
+function _depQR(t,id){var el=document.getElementById(id||'dep-qr');if(!el)return;var d=function(){try{el.innerHTML='';new QRCode(el,{text:t,width:176,height:176,correctLevel:QRCode.CorrectLevel.M});}catch(e){}};if(window.QRCode)return d();var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=d;s.onerror=function(){el.innerHTML='<div style="color:var(--muted);font-size:12px">Scan unavailable — use the button</div>';};document.head.appendChild(s);}
 function _depOpen(dl){ try{ (window.Telegram&&Telegram.WebApp&&Telegram.WebApp.openLink)?Telegram.WebApp.openLink(dl):window.open(dl,'_blank'); }catch(e){ window.open(dl,'_blank'); } }
 async function openWallet(){
 $('#wallet').classList.add('show'); haptic('light');
@@ -979,6 +979,11 @@ try{ const w=await api('/api/wallet/info');
 if(!w.address){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
 const memo=encodeURIComponent(w.comment); let dl='https://app.tonkeeper.com/transfer/'+w.address+'?text='+memo; if(w.jetton) dl+='&jetton='+encodeURIComponent(w.jetton);
 b.innerHTML=`<div class="d-box"><div class="lbl">Your balance</div><div class="d-reward">${w.balance} cr</div></div>
+${w.sol?`<div class="d-box"><div class="lbl">Deposit USDC on Solana (${esc(w.sol.network)}) — your own address, no memo</div>
+<div class="id-box" style="word-break:break-all">${esc(w.sol.address)}</div>
+<button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.sol.address)}">Copy Solana address</button>
+<div id="sol-qr" style="display:flex;justify-content:center;padding:12px 0"></div>
+<div style="font-size:12px;color:var(--muted)">Send USDC here — this address is yours alone, no comment needed. Min ${w.sol.min} USDC.</div></div>`:''}
 <button class="btn btn-lime" id="dep-open" style="width:100%;margin:0 0 12px">Open in Tonkeeper</button>
 <div class="d-box" style="text-align:center"><div class="lbl">Or scan to pay</div><div id="dep-qr" style="display:flex;justify-content:center;padding:12px 0"></div></div>
 <div class="d-box"><div class="lbl">1 · Send USDT on ${esc(w.network)} to this address</div>
@@ -990,6 +995,7 @@ b.innerHTML=`<div class="d-box"><div class="lbl">Your balance</div><div class="d
 <div class="d-box" style="font-size:13px;color:var(--muted)">${w.configured?'After the transfer confirms on-chain, your credits appear automatically. Without the comment we cannot match your deposit.':'Testnet: send with the comment above — an admin credits you after it confirms. Without the comment we cannot match your deposit.'}</div>`;
 b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
 const _ob=b.querySelector('#dep-open'); if(_ob)_ob.onclick=()=>{ haptic('light'); _depOpen(dl); }; _depQR(dl);
+if(w.sol){ _depQR('solana:'+w.sol.address+'?spl-token='+w.sol.mint,'sol-qr'); }
 }catch(e){ b.innerHTML=`<div style="color:var(--muted);text-align:center;padding:20px">${esc(e.message)}</div>`; }
 }
 const _wx=$('#wallet-x'); if(_wx)_wx.onclick=()=>$('#wallet').classList.remove('show');
