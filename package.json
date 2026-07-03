@@ -16,7 +16,8 @@
     "test:wallet": "node test_wallet.mjs",
     "test:server": "node test_server_ledger.mjs",
     "test:ton": "node test_ton.mjs",
-    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:ton"
+    "test:solana": "node test_solana.mjs",
+    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:ton && npm run test:solana"
   },
   "dependencies": {
     "pg": "^8.13.1"
@@ -24,7 +25,11 @@
   "optionalDependencies": {
     "@ton/ton": "^15.1.0",
     "@ton/core": "^0.63.0",
-    "@ton/crypto": "^3.3.0"
+    "@ton/crypto": "^3.3.0",
+    "@solana/web3.js": "^1.95.3",
+    "@solana/spl-token": "^0.4.9",
+    "bip39": "^3.1.0",
+    "ed25519-hd-key": "^1.3.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3"
