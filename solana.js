@@ -92,25 +92,38 @@ export function webhookAuthorized(headers, secret) {
 // Key derivation (lazy libs). Private keys are derived on demand and
 // never stored — only the per-user index + public address live in the DB.
 // ============================================================
-async function _libs() {
-  const web3 = await import('@solana/web3.js');
+// Light, pure-JS derivation libs (no native build → no libatomic1, small image).
+// Path m/44'/501'/<i>'/0' + ed25519 SLIP-0010 = the same accounts Phantom shows.
+async function _derivelibs() {
   const bip39 = await import('bip39');
   const { derivePath } = await import('ed25519-hd-key');
-  return { web3, bip39, derivePath };
+  const nacl = (await import('tweetnacl')).default;
+  const bs58 = (await import('bs58')).default;
+  return { bip39, derivePath, nacl, bs58 };
 }
 
-export async function deriveKeypair(index) {
+// Derive one account: { seed32 (Buffer), address (base58 pubkey) }.
+export async function deriveAccount(index) {
   const mn = process.env.SOLANA_MASTER_MNEMONIC;
   if (!mn) throw new Error('SOLANA_MASTER_MNEMONIC not set');
-  const { web3, bip39, derivePath } = await _libs();
-  const seed = await bip39.mnemonicToSeed(mn.trim());
+  const { bip39, derivePath, nacl, bs58 } = await _derivelibs();
+  const seed = await bip39.mnemonicToSeed(mn.trim());        // 64-byte BIP39 seed
   const path = `m/44'/501'/${Number(index)}'/0'`;
-  const { key } = derivePath(path, seed.toString('hex'));
-  return web3.Keypair.fromSeed(key);
+  const { key } = derivePath(path, seed.toString('hex'));    // 32-byte ed25519 seed
+  const kp = nacl.sign.keyPair.fromSeed(Uint8Array.from(key));
+  return { seed32: Buffer.from(key), address: bs58.encode(Buffer.from(kp.publicKey)) };
 }
 
 export async function depositAddress(index) {
-  return (await deriveKeypair(index)).publicKey.toBase58();
+  return (await deriveAccount(index)).address;
+}
+
+// Full @solana Keypair for signing — used only by sweep(). Heavy libs are
+// lazy-imported here so the deposit/credit path never needs them.
+export async function deriveKeypair(index) {
+  const { seed32 } = await deriveAccount(index);
+  const web3 = await import('@solana/web3.js');
+  return web3.Keypair.fromSeed(Uint8Array.from(seed32));
 }
 
 // ============================================================
