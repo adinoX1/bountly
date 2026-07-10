@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOUNTLY — film the dare, win the bounty</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Rubik+Distressed&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --red:#f4212e;
+    --red-glow:rgba(244,33,46,.55);
+    --ink:#0a0a0b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ink);
+    color:#fff;
+    font-family:'JetBrains Mono',ui-monospace,monospace;
+    min-height:100dvh;
+    display:flex;align-items:center;justify-content:center;
+    text-align:center;
+    overflow:hidden;
+    position:relative;
+  }
+  /* ---- cinematic vault backdrop (original, CSS-only) ---- */
+  .bg{position:fixed;inset:0;z-index:1;overflow:hidden;pointer-events:none}
+  .bg::before{ /* darkening layer over the video so the text stays readable */
+    content:"";position:absolute;inset:-10%;
+    background:
+      radial-gradient(120% 90% at 50% 38%, rgba(8,8,10,.10) 0%, rgba(6,6,8,.50) 68%, rgba(3,3,5,.82) 100%),
+      linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.5));
+  }
+  .bg::after{ /* red spotlight beam from top, like a torch on the vault */
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(45% 55% at 50% 6%, var(--red-glow) 0%, rgba(244,33,46,.12) 30%, transparent 60%),
+      conic-gradient(from 180deg at 50% 0%, transparent 42%, rgba(244,33,46,.10) 50%, transparent 58%);
+    mix-blend-mode:screen;
+    filter:blur(2px);
+    animation:flicker 6s ease-in-out infinite;
+  }
+  .vignette{position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 40%, transparent 45%, rgba(0,0,0,.55) 78%, rgba(0,0,0,.9) 100%);}
+  .grid{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.06;
+    background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
+    background-size:44px 44px;mask-image:radial-gradient(80% 60% at 50% 45%,#000 0%,transparent 75%)}
+  @keyframes flicker{0%,100%{opacity:.9}45%{opacity:1}55%{opacity:.82}70%{opacity:.96}}
+
+  /* dust motes drifting up in the beam */
+  .mote{position:fixed;z-index:1;width:3px;height:3px;border-radius:50%;
+    background:rgba(255,220,220,.5);filter:blur(.5px);pointer-events:none;
+    animation:rise linear infinite}
+  @keyframes rise{from{transform:translateY(20vh);opacity:0}10%{opacity:.7}90%{opacity:.5}to{transform:translateY(-80vh);opacity:0}}
+
+  main{position:relative;z-index:2;padding:32px 20px;width:100%;max-width:820px}
+
+  .title{
+    font-family:'Anton',sans-serif;
+    font-size:clamp(64px,15vw,168px);
+    line-height:.92;letter-spacing:.02em;
+    text-transform:uppercase;
+    color:#fff;
+    text-shadow:0 2px 0 rgba(0,0,0,.5), 0 0 34px rgba(244,33,46,.28);
+  }
+  .sub{
+    margin-top:14px;
+    font-family:'Rubik Distressed','Anton',sans-serif;
+    font-size:clamp(11px,1.9vw,16px);
+    letter-spacing:.16em;
+    color:var(--red);
+    text-transform:uppercase;
+    font-weight:400;
+    text-shadow:0 0 26px rgba(244,33,46,.4);
+  }
+
+  .cta{
+    margin-top:40px;
+    display:inline-flex;align-items:center;gap:12px;
+    padding:16px 30px;
+    background:#0a0a0c;
+    color:var(--red);text-decoration:none;
+    font-weight:700;letter-spacing:.16em;font-size:14px;text-transform:uppercase;
+    border:2px solid var(--red);
+    border-radius:4px;
+    box-shadow:0 10px 40px -10px var(--red-glow);
+    transition:transform .12s ease, box-shadow .2s ease, background .2s ease, color .2s ease;
+  }
+  .cta:hover{transform:translateY(-2px);background:var(--red);color:#fff;box-shadow:0 16px 54px -6px var(--red-glow)}
+  .cta:active{transform:translateY(0)}
+  .cta svg{width:22px;height:22px;flex:0 0 auto}
+
+  .hint{margin-top:16px;font-size:12px;letter-spacing:.14em;color:#7a7a80;text-transform:uppercase}
+
+  /* background UGC video — sits behind the grid pattern + text, dark filter for contrast */
+  .bg-video{position:fixed;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;filter:brightness(.5) saturate(.92) contrast(1.05)}
+
+  /* bottom-centered X (Twitter) link */
+  .social{position:fixed;left:0;right:0;bottom:22px;z-index:3;display:flex;justify-content:center}
+  .social a{display:inline-flex;color:#6a6a70;transition:color .2s ease, transform .12s ease}
+  .social a:hover{color:#fff;transform:translateY(-2px)}
+  .social svg{width:20px;height:20px}
+</style>
+</head>
+<body>
+  <!-- background UGC video: 13s loop, muted. Keep bountly-bg.mp4 next to this file. -->
+  <video class="bg-video" autoplay muted loop playsinline>
+    <source src="bountly-bg.mp4" type="video/mp4">
+  </video>
+
+  <div class="bg"></div>
+  <div class="grid"></div>
+  <div class="vignette"></div>
+
+  <main>
+    <h1 class="title">Bountly</h1>
+    <p class="sub">Challenge Yourself</p>
+
+    <a class="cta" href="https://t.me/getbountlybot/arena" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.9-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71l-4.14-3.05-1.99 1.93c-.23.23-.42.42-.83.42z"/>
+      </svg>
+      Open on Telegram
+    </a>
+  </main>
+
+  <div class="social">
+    <a href="https://x.com/BountlyApp" target="_blank" rel="noopener" aria-label="X (Twitter)">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+    </a>
+  </div>
+
+  <script>
+    // drifting dust motes in the beam
+    for(let i=0;i<26;i++){
+      const m=document.createElement('div');m.className='mote';
+      m.style.left=(30+Math.random()*40)+'%';
+      m.style.bottom='-10px';
+      const d=6+Math.random()*10;
+      m.style.animationDuration=d+'s';
+      m.style.animationDelay=(-Math.random()*d)+'s';
+      m.style.opacity=(.3+Math.random()*.5);
+      const s=(1+Math.random()*2.4).toFixed(1);m.style.width=s+'px';m.style.height=s+'px';
+      document.body.appendChild(m);
+    }
+    // gentle live-ticking counter for hype
+    let n=39052;const el=document.getElementById('crew');
+    setInterval(()=>{ if(Math.random()<.5){ n++; el.textContent=n.toLocaleString('en-US'); } },4200);
+  </script>
+</body>
+</html>
