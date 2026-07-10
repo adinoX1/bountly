@@ -101,11 +101,20 @@
   .social a{display:inline-flex;color:#6a6a70;transition:color .2s ease, transform .12s ease}
   .social a:hover{color:#fff;transform:translateY(-2px)}
   .social svg{width:20px;height:20px}
+
+  /* mobile tuning */
+  @media (max-width:600px){
+    main{padding:24px 18px}
+    .title{font-size:clamp(52px,19vw,120px)}
+    .sub{font-size:clamp(11px,3.4vw,16px);letter-spacing:.14em}
+    .cta{margin-top:34px;padding:14px 24px;font-size:13px;letter-spacing:.12em}
+    .grid{background-size:34px 34px}
+  }
 </style>
 </head>
 <body>
   <!-- background UGC video: 13s loop, muted. Keep bountly-bg.mp4 next to this file. -->
-  <video class="bg-video" autoplay muted loop playsinline>
+  <video class="bg-video" id="bgv" autoplay muted loop playsinline webkit-playsinline preload="auto">
     <source src="bountly-bg.mp4" type="video/mp4">
   </video>
 
@@ -144,9 +153,15 @@
       const s=(1+Math.random()*2.4).toFixed(1);m.style.width=s+'px';m.style.height=s+'px';
       document.body.appendChild(m);
     }
-    // gentle live-ticking counter for hype
-    let n=39052;const el=document.getElementById('crew');
-    setInterval(()=>{ if(Math.random()<.5){ n++; el.textContent=n.toLocaleString('en-US'); } },4200);
+    // robust autoplay for mobile (iOS/Android sometimes block until a gesture)
+    var v=document.getElementById('bgv');
+    if(v){
+      var tryPlay=function(){ var p=v.play&&v.play(); if(p&&p.catch)p.catch(function(){}); };
+      tryPlay();
+      v.addEventListener('canplay',tryPlay,{once:true});
+      ['touchstart','click','scroll'].forEach(function(ev){ document.addEventListener(ev,tryPlay,{once:true}); });
+      document.addEventListener('visibilitychange',function(){ if(!document.hidden)tryPlay(); });
+    }
   </script>
 </body>
 </html>
