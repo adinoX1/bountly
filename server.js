@@ -618,11 +618,15 @@ const server = http.createServer(async (req, res) => {
   // Only these public files are servable. This prevents leaking data.json
   // (the whole database!), server.js, package.json or a .env via the URL.
   const STATIC = {
-    "/":          { file: "index.html", type: "text/html" },
-    "/index.html":{ file: "index.html", type: "text/html" },
-    "/admin":     { file: "admin.html", type: "text/html" },
-    "/admin/":    { file: "admin.html", type: "text/html" },
-    "/admin.html":{ file: "admin.html", type: "text/html" }
+    "/":              { file: "landing.html",  type: "text/html" },       // public landing page
+    "/landing.html":  { file: "landing.html",  type: "text/html" },
+    "/bountly-bg.mp4":{ file: "bountly-bg.mp4", type: "video/mp4" },       // landing background video
+    "/app":           { file: "index.html",    type: "text/html" },       // Telegram Mini App
+    "/app/":          { file: "index.html",    type: "text/html" },
+    "/index.html":    { file: "index.html",    type: "text/html" },
+    "/admin":         { file: "admin.html",    type: "text/html" },
+    "/admin/":        { file: "admin.html",    type: "text/html" },
+    "/admin.html":    { file: "admin.html",    type: "text/html" }
   };
   const entry = STATIC[p];
   if (!entry){ res.writeHead(404, SECURITY_HEADERS); return res.end("Not found"); }
