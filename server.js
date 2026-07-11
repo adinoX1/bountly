@@ -34,6 +34,7 @@ const PLAYER_FEE     = 0.10, CREATOR_FEE = 0.05;
 const START_CREDITS  = 100;
 const MAX_VIDEO      = 50 * 1024 * 1024;            // 50 MB cap
 const APP_LINK       = process.env.APP_LINK || "";  // e.g. https://t.me/getbountlybot/arena
+const PUBLIC_URL     = process.env.PUBLIC_URL || "https://jakubsas.life"; // for the Telegram webhook
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const ALLOW_ORIGIN   = process.env.ALLOW_ORIGIN || "";       // set to enable cross-origin API access
 const IS_PROD        = process.env.NODE_ENV === "production";
@@ -95,6 +96,34 @@ async function notify(userId, text){
     });
     if (!r.ok){ const t = await r.text(); console.error("notify failed", r.status, t.slice(0, 140)); }
   } catch (e){ console.error("notify error:", e.message); }
+}
+
+// ---- Telegram bot commands (webhook-driven) ----
+const TG_SECRET = BOT_TOKEN ? crypto.createHash("sha256").update("bountly-wh:" + BOT_TOKEN).digest("hex").slice(0, 40) : "";
+const TG_OPEN_BTN = { inline_keyboard: [[{ text: "⚡ Open Bountly", url: APP_LINK || (PUBLIC_URL + "/app") }]] };
+const TG_WELCOME = "Welcome to Bountly ⚡\n\nFilm the dare. Prove it. Win the bounty.\nPost a challenge, set a bounty — first valid proof takes the cash.\n\nTap below to enter the arena.";
+const TG_HOW = "How Bountly works\n\n1. Post a dare & set a bounty 💰\n2. Hunters film their proof and submit it 🎬\n3. First valid proof wins the bounty 🏆\n\nChallenge yourself — tap below to start.";
+async function tgReply(chatId, text){
+  if (!BOT_TOKEN || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, reply_markup: TG_OPEN_BTN })
+    });
+  } catch (e){ console.error("tgReply:", e.message); }
+}
+async function registerTelegram(){
+  if (!BOT_TOKEN) return;
+  const base = `https://api.telegram.org/bot${BOT_TOKEN}`;
+  try {
+    await fetch(`${base}/setWebhook`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: PUBLIC_URL + "/api/tg/webhook", secret_token: TG_SECRET, allowed_updates: ["message"] }) });
+    await fetch(`${base}/setMyCommands`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands: [
+        { command: "start",       description: "Start & open Bountly" },
+        { command: "howitworks",  description: "How Bountly works" } ] }) });
+    console.log("✓ Telegram commands + webhook registered");
+  } catch (e){ console.error("registerTelegram:", e.message); }
 }
 
 const DB_FILE = path.join(__dirname, "data.json");
@@ -397,6 +426,18 @@ const server = http.createServer(async (req, res) => {
       } catch (e){ return json(res, 413, { error: "upload too large (max 50MB)" }); }
     }
 
+    // ===== Telegram bot webhook (commands) — verifies Telegram's secret token =====
+    if (BOT_TOKEN && p === "/api/tg/webhook" && req.method === "POST"){
+      if ((req.headers["x-telegram-bot-api-secret-token"] || "") !== TG_SECRET){ res.writeHead(401); return res.end("no"); }
+      const msg = body && (body.message || body.edited_message);
+      if (msg && msg.text && msg.chat){
+        const t = String(msg.text).trim().toLowerCase();
+        if (t === "/start" || t.startsWith("/start@") || t.startsWith("/start ")) tgReply(msg.chat.id, TG_WELCOME);
+        else if (t.startsWith("/howitworks")) tgReply(msg.chat.id, TG_HOW);
+      }
+      res.writeHead(200, SECURITY_HEADERS); return res.end("ok");
+    }
+
     // ===== Solana deposit webhook (Helius) — NO Telegram auth; verifies its own shared secret =====
     if (SOLANA && USE_DB && p === "/api/solana/webhook" && req.method === "POST"){
       const r = await solana.handleWebhook(pool, { headers: req.headers, body, log: console })
@@ -642,4 +683,5 @@ initStore()
     `Bountly running on http://localhost:${PORT} · storage: ${USE_DB ? "Postgres" : "local JSON"} · uploads: ${UP_DIR} · BOT_TOKEN ${BOT_TOKEN ? "set" : "NOT set (DEV mode)"}`)))
   .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool); })
   .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool).then(() => console.log("✓ Solana deposits enabled (SOLANA=1)")).catch(e => console.error("Solana schema:", e.message)); })
+  .then(() => registerTelegram())
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });
