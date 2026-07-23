@@ -18,6 +18,7 @@
 // Flag-gated by SOLANA=1. Heavy libs (@solana/*) are lazy-imported so the
 // app runs untouched when the flag is off.
 // ============================================================
+import crypto from 'node:crypto';
 import * as wallet from './wallet.js';
 
 // ---- config (all via environment) ----
@@ -81,11 +82,14 @@ export function evaluateDeposit(tx, { owner, mint, decimals, min, finalized = tr
   return { credit: true, amount, reason: 'ok' };
 }
 
-// Constant-time-ish check of the Helius webhook auth header.
+// Constant-time check of the Helius webhook auth header. A plain === leaks the
+// secret's prefix through response timing, one byte at a time.
 export function webhookAuthorized(headers, secret) {
   if (!secret) return false; // fail closed: require a configured secret
   const got = (headers && (headers['authorization'] || headers['Authorization'])) || '';
-  return got === secret;
+  const a = Buffer.from(String(got)), b = Buffer.from(String(secret));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 // ============================================================

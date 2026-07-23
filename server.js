@@ -61,23 +61,58 @@ function dashAuth(req){
   return true;
 }
 
-// ---- login rate limiting (per IP) ----
-const LOGIN_WINDOW = 15 * 60e3;  // 15 min
-const LOGIN_MAX    = 8;          // attempts per window before lockout
-const loginHits = new Map();     // ip -> { count, first }
+// ---- rate limiting (per IP, fixed window) ----
+// One shared bucket implementation. Each named limiter keeps its own Map so
+// a burst of uploads can't lock someone out of the login form and vice versa.
 function clientIp(req){
   const xff = (req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   return xff || req.socket.remoteAddress || "unknown";
 }
-function loginAllowed(ip){
-  const now = Date.now(), rec = loginHits.get(ip);
-  if (!rec || now - rec.first > LOGIN_WINDOW){ loginHits.set(ip, { count: 0, first: now }); return true; }
-  return rec.count < LOGIN_MAX;
+function rateLimiter(windowMs, max){
+  const hits = new Map(); // key -> { count, first }
+  return {
+    hits,
+    // count this request and report whether it is still inside the budget
+    take(key){
+      const now = Date.now(); let rec = hits.get(key);
+      if (!rec || now - rec.first > windowMs){ rec = { count: 0, first: now }; hits.set(key, rec); }
+      rec.count++;
+      return rec.count <= max;
+    },
+    // check without consuming (login counts only FAILED attempts)
+    allowed(key){
+      const now = Date.now(), rec = hits.get(key);
+      return !rec || now - rec.first > windowMs || rec.count < max;
+    },
+    fail(key){
+      const now = Date.now(); let rec = hits.get(key);
+      if (!rec || now - rec.first > windowMs){ rec = { count: 0, first: now }; hits.set(key, rec); }
+      rec.count++;
+    },
+    reset(key){ hits.delete(key); },
+    sweep(now){ for (const [k, v] of hits) if (now - v.first > windowMs) hits.delete(k); }
+  };
 }
-function loginFail(ip){
-  const now = Date.now(), rec = loginHits.get(ip) || { count: 0, first: now };
-  rec.count++; loginHits.set(ip, rec);
-}
+const loginLimit  = rateLimiter(15 * 60e3, 8);    // dashboard password attempts
+const writeLimit  = rateLimiter(60e3, 30);        // any authenticated POST
+const uploadLimit = rateLimiter(60 * 60e3, 20);   // proof submissions per hour
+const avatarLimit = rateLimiter(60e3, 60);        // unauthenticated avatar proxy
+
+// Cached Telegram profile photos: username -> { buf, exp }. Without this every
+// <img> hit fanned out into three calls to the Telegram API, which is a fast
+// way to get the bot rate-limited by someone hammering a public endpoint.
+const AVATAR_TTL = 6 * 3600e3;
+const avatarCache = new Map();
+
+// The Maps above and dashTokens only ever grew. Sweep expired entries so a
+// long-running instance doesn't leak memory on every IP that ever connected.
+const sweeper = setInterval(() => {
+  const now = Date.now();
+  for (const l of [loginLimit, writeLimit, uploadLimit, avatarLimit]) l.sweep(now);
+  for (const [t, exp] of dashTokens) if (now > exp) dashTokens.delete(t);
+  for (const [k, v] of avatarCache) if (now > v.exp) avatarCache.delete(k);
+}, 10 * 60e3);
+sweeper.unref?.();
 // constant-time string compare that doesn't leak length via early return
 function safeEqual(a, b){
   const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
@@ -234,11 +269,29 @@ const tx = (type, from, to, amount, note) => db.txns.push({ id: ++db.seq.tx, at:
 const pub = u => ({ id: u.id, username: u.username, name: u.name, credits: u.credits, wins: u.wins, isAdmin: u.isAdmin, banned: u.banned });
 
 // ---- response helpers ----
+// NOTE: no X-Frame-Options here. It used to say SAMEORIGIN, which blocks the
+// mini app inside Telegram Web — Telegram embeds it in an iframe from
+// web.telegram.org. Framing is controlled per-page by CSP frame-ancestors
+// below: the mini app allows Telegram, the admin dashboard allows nobody.
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "strict-origin-when-cross-origin",
-  "X-Frame-Options": "SAMEORIGIN"
+  "Referrer-Policy": "strict-origin-when-cross-origin"
 };
+const TELEGRAM_FRAME = "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org";
+// The pages lean on inline <script>/<style> and pull the QR lib from cdnjs,
+// so 'unsafe-inline' has to stay for now; everything else is locked down.
+const CSP_APP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  TELEGRAM_FRAME
+].join("; ");
+const CSP_ADMIN = CSP_APP.replace(TELEGRAM_FRAME, "frame-ancestors 'none'");
 function corsHeaders(){
   if (!ALLOW_ORIGIN) return {}; // same-origin: no CORS headers needed
   return {
@@ -390,6 +443,12 @@ function buildQueue(){
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`); const p = url.pathname;
+  // Behind Railway/any TLS-terminating proxy the socket is plain HTTP, so trust
+  // the forwarded scheme to decide whether HSTS applies. setHeader survives the
+  // later writeHead(code, headers) calls, so every response picks it up.
+  if ((req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https")
+    res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+
   if (req.method === "OPTIONS"){ res.writeHead(204, { ...SECURITY_HEADERS, ...corsHeaders() }); return res.end(); }
 
   if (p.startsWith("/api/")){
@@ -397,23 +456,35 @@ const server = http.createServer(async (req, res) => {
     let am = p.match(/^\/api\/player\/(.+)\/avatar$/);
     if (am && req.method === "GET"){
       const uname = decodeURIComponent(am[1]).replace(/^@/, "");
+      // Unauthenticated by necessity — an <img> can't send auth headers — so it
+      // needs its own budget and a cache, otherwise each hit costs three calls
+      // to the Telegram API and anyone can burn the bot's rate limit for us.
+      if (!avatarLimit.take(clientIp(req))){ res.writeHead(429, SECURITY_HEADERS); return res.end("slow down"); }
+      const hit = avatarCache.get(uname);
+      if (hit && Date.now() < hit.exp){
+        if (!hit.buf){ res.writeHead(404, SECURITY_HEADERS); return res.end("no avatar"); }
+        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400", ...SECURITY_HEADERS });
+        return res.end(hit.buf);
+      }
+      const miss = () => { avatarCache.set(uname, { buf: null, exp: Date.now() + AVATAR_TTL }); };
       const pu = Object.values(db.users).find(x => x.username === uname);
-      if (!pu || !BOT_TOKEN){ res.writeHead(404); return res.end("no avatar"); }
+      if (!pu || !BOT_TOKEN){ miss(); res.writeHead(404, SECURITY_HEADERS); return res.end("no avatar"); }
       try {
         const r1 = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUserProfilePhotos?user_id=${encodeURIComponent(pu.id)}&limit=1`);
         const d1 = await r1.json();
         const photos = d1 && d1.result && d1.result.photos;
-        if (!photos || !photos.length){ res.writeHead(404); return res.end("no photo"); }
+        if (!photos || !photos.length){ miss(); res.writeHead(404, SECURITY_HEADERS); return res.end("no photo"); }
         const sizes = photos[0]; const fileId = sizes[sizes.length - 1].file_id; // largest size
         const r2 = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${encodeURIComponent(fileId)}`);
         const d2 = await r2.json();
         const fp = d2 && d2.result && d2.result.file_path;
-        if (!fp){ res.writeHead(404); return res.end("no file"); }
+        if (!fp){ miss(); res.writeHead(404, SECURITY_HEADERS); return res.end("no file"); }
         const img = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${fp}`);
         const buf = Buffer.from(await img.arrayBuffer());
-        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
+        avatarCache.set(uname, { buf, exp: Date.now() + AVATAR_TTL });
+        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400", ...SECURITY_HEADERS });
         return res.end(buf);
-      } catch (e){ res.writeHead(404); return res.end("err"); }
+      } catch (e){ miss(); res.writeHead(404, SECURITY_HEADERS); return res.end("err"); }
     }
 
     const ct = req.headers["content-type"] || "";
@@ -451,9 +522,9 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/dash/login" && req.method === "POST"){
         const ip = clientIp(req);
         if (!ADMIN_PASSWORD) return json(res, 500, { error: "dashboard disabled — set ADMIN_PASSWORD on the server" });
-        if (!loginAllowed(ip)) return json(res, 429, { error: "too many attempts — try again later" });
-        if (!safeEqual(String(body.password || ""), ADMIN_PASSWORD)){ loginFail(ip); return json(res, 401, { error: "wrong password" }); }
-        loginHits.delete(ip);
+        if (!loginLimit.allowed(ip)) return json(res, 429, { error: "too many attempts — try again later" });
+        if (!safeEqual(String(body.password || ""), ADMIN_PASSWORD)){ loginLimit.fail(ip); return json(res, 401, { error: "wrong password" }); }
+        loginLimit.reset(ip);
         return json(res, 200, { token: newDashToken() });
       }
       if (!dashAuth(req)) return json(res, 401, { error: "unauthorized" });
@@ -506,6 +577,14 @@ const server = http.createServer(async (req, res) => {
 
     const g = getUser(req); if (!g.ok) return json(res, 401, { error: "unauthorized: " + g.error });
     const u = g.user;
+
+    // Per-user write budget. Nothing but the dashboard login was limited, so a
+    // single account could hammer dare creation or push 50 MB uploads in a loop.
+    if (req.method === "POST"){
+      if (!writeLimit.take(u.id)) return json(res, 429, { error: "too many requests — slow down" });
+      if (/\/submit$/.test(p) && !uploadLimit.take(u.id))
+        return json(res, 429, { error: "too many proof uploads this hour — try again later" });
+    }
     if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: u, pool, json, notify, fs, pathMod: path, crypto, UP_DIR, db, save }); if (handled) return; }
 
     if (p === "/api/me") return json(res, 200, { user: pub(u) });
@@ -708,7 +787,10 @@ const server = http.createServer(async (req, res) => {
   if (!entry){ res.writeHead(404, SECURITY_HEADERS); return res.end("Not found"); }
   fs.readFile(path.join(__dirname, entry.file), (err, data) => {
     if (err){ res.writeHead(404, SECURITY_HEADERS); return res.end("Not found"); }
-    res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": "no-cache", ...SECURITY_HEADERS });
+    const csp = entry.file === "admin.html" ? CSP_ADMIN : CSP_APP;
+    res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": "no-cache",
+      ...(entry.type === "text/html" ? { "Content-Security-Policy": csp } : {}),
+      ...SECURITY_HEADERS });
     res.end(data);
   });
 });

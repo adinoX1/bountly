@@ -101,6 +101,32 @@ try {
   eq((await raw('/uploads/..%2Fserver.js')).status, 404, 'encoded ../ is refused');
   eq((await raw('/uploads/nope.mp4')).status, 404, 'missing file is 404');
   eq((await raw('/uploads/')).status, 404, 'bare directory is 404');
+
+  console.log('\n-- static whitelist still holds --');
+  eq((await raw('/data.json')).status, 404, 'data.json is not servable');
+  eq((await raw('/server.js')).status, 404, 'server.js is not servable');
+  eq((await raw('/.env')).status, 404, '.env is not servable');
+  eq((await raw('/app')).status, 200, 'the mini app is servable');
+
+  console.log('\n-- framing / CSP --');
+  const app = await raw('/app');
+  ok(!app.headers['x-frame-options'], 'no X-Frame-Options (it blocked Telegram Web)');
+  ok(/frame-ancestors[^;]*web\.telegram\.org/.test(app.headers['content-security-policy'] || ''),
+    'mini app lets Telegram frame it');
+  const adm = await raw('/admin');
+  ok(/frame-ancestors 'none'/.test(adm.headers['content-security-policy'] || ''),
+    'dashboard refuses all framing');
+  eq(app.headers['x-content-type-options'], 'nosniff', 'nosniff still set');
+  ok(!app.headers['strict-transport-security'], 'no HSTS on a plain-HTTP request');
+  const https = await raw('/app', { 'X-Forwarded-Proto': 'https' });
+  ok(/max-age=/.test(https.headers['strict-transport-security'] || ''), 'HSTS set when proxied over https');
+
+  console.log('\n-- avatar proxy is rate limited --');
+  let sawLimit = false;
+  for (let i = 0; i < 70; i++) {
+    if ((await raw('/api/player/nobody/avatar')).status === 429) { sawLimit = true; break; }
+  }
+  ok(sawLimit, 'avatar proxy returns 429 once the per-minute budget is spent');
 } catch (e) {
   fail++; console.log('  FAIL: threw', e.message);
 }
