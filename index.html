@@ -88,7 +88,10 @@ main{max-width:1100px;margin:0 auto;padding:0 24px 100px}
 .tag.live{color:var(--lime);background:rgba(244,33,46,.1)}
 .tag.hot{color:#ff9f45;background:rgba(255,159,69,.1)}
 .tag.full{color:var(--red);background:rgba(244,33,46,.1)}
+.tag.clock{color:var(--muted);background:rgba(125,131,141,.12)}
+.tag.clock.soon{color:#ff9f45;background:rgba(255,159,69,.12)}
 .tag .d{width:5px;height:5px;border-radius:50%;background:currentColor}
+.hint{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4}
 .card h3{font-size:18px;font-weight:700;letter-spacing:-.02em;margin-bottom:7px;line-height:1.25}
 .card .creator{font-size:13px;color:var(--muted);margin-bottom:14px}
 .card .reward{font-size:25px;font-weight:800;color:var(--lime);letter-spacing:-.02em;margin-bottom:2px}
@@ -454,6 +457,10 @@ header{padding:0}
         <div><label>Reward / winner (€)</label><input id="f-rw" type="number" value="20" min="1"></div>
         <div><label>Winners</label><select id="f-w"><option value="1">1 — fastest takes all</option><option>2</option><option>3</option><option>5</option></select></div>
       </div>
+      <div><label>Deadline</label><select id="f-x">
+        <option value="1">24 hours</option><option value="3">3 days</option>
+        <option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option>
+      </select><div class="hint">If nobody claims it by then, your escrow is refunded automatically.</div></div>
       <div class="escrow">
         <div class="eh">Escrow breakdown</div>
         <div class="ln"><span>Rewards</span><span id="e-rw">20,00 €</span></div>
@@ -536,6 +543,23 @@ async function api(path,opts={}){
   return r.json();
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+// A dare is claimable only while it has free slots AND is inside its deadline.
+// `expired`/`status` come from the JSON and LEDGER backends respectively; the
+// expiresAt check covers the gap before either sweeper has run.
+function isOpen(c){
+  if(c.full||c.expired) return false;
+  if(c.status&&c.status!=='open') return false;
+  return !(c.expiresAt&&c.expiresAt<=Date.now());
+}
+// countdown chip — a dare with a deadline refunds its escrow automatically once it passes
+function leftText(ms){ const m=Math.floor(ms/60000); if(m<60) return m+'m left';
+  const h=Math.floor(m/60); if(h<48) return h+'h left'; return Math.floor(h/24)+'d left'; }
+function deadlineTag(expiresAt){
+  if(!expiresAt) return '';
+  const ms=expiresAt-Date.now();
+  if(ms<=0) return `<span class="tag clock soon">expired</span>`;
+  return `<span class="tag clock${ms<24*3600e3?' soon':''}">${leftText(ms)}</span>`;
+}
 let toastT; function toast(m){ let t=$('#toast'); if(!t){t=document.createElement('div');t.id='toast';
   t.style.cssText='position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--surface2);color:var(--txt);border:1px solid var(--line2);padding:12px 20px;border-radius:12px;font-size:14px;z-index:99;box-shadow:0 10px 30px rgba(0,0,0,.5);transition:opacity .25s';document.body.appendChild(t);}
   t.textContent=m; t.style.opacity='1'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.opacity='0',3500); }
@@ -564,14 +588,15 @@ async function loadChallenges(){
     const sig=JSON.stringify(challenges)+'|'+(ME?ME.credits:'')+'|'+chFilter;
     if(grid.dataset.sig===sig) return;   // nothing changed → skip re-render (no flicker)
     grid.dataset.sig=sig;
-    const liveTotal=challenges.filter(c=>!c.full).reduce((a,c)=>a+c.reward*c.maxWinners,0);
+    const open=challenges.filter(isOpen);
+    const liveTotal=open.reduce((a,c)=>a+c.reward*c.maxWinners,0);
     $('#strip').innerHTML=`
       <div class="cell"><div class="v lime">${liveTotal} cr</div><div class="k">Bounties live</div></div>
-      <div class="cell"><div class="v">${challenges.filter(c=>!c.full).length}</div><div class="k">Open dares</div></div>
+      <div class="cell"><div class="v">${open.length}</div><div class="k">Open dares</div></div>
       <div class="cell"><div class="v">${challenges.length}</div><div class="k">Total dares</div></div>
       <div class="cell"><div class="v">${ME?ME.credits:'—'}</div><div class="k">Your credits</div></div>`;
-    // filter: open = not full, closed/history = full
-    const shown=challenges.filter(c=> chFilter==='open' ? !c.full : c.full);
+    // filter: open = still claimable, closed/history = filled or expired
+    const shown=challenges.filter(c=> chFilter==='open' ? isOpen(c) : !isOpen(c));
     if(!shown.length){
       $('#grid').innerHTML=`<div style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px 0">${chFilter==='open'?'No open bounties right now.':'No closed bounties yet.'}</div>`;
       grid.dataset.loaded="1"; return;
@@ -580,7 +605,7 @@ async function loadChallenges(){
       const tag=b.full?'full':(b.subs>3?'hot':'live');
       const segs=Array.from({length:b.maxWinners},(_,i)=>`<div class="seg ${i<b.slots[0]?'on':''}"></div>`).join('');
       return `<div class="card" data-open="${b.id}" style="cursor:pointer">
-        <div class="c-top"><span class="c-id">${b.code}</span><span class="tag ${tag}"><span class="d"></span>${b.full?'filled':tag}</span></div>
+        <div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${b.full?'':deadlineTag(b.expiresAt)}<span class="tag ${tag}"><span class="d"></span>${b.full?'filled':tag}</span></span></div>
         <h3>${esc(b.title)}</h3><div class="creator">by <span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span></div>
         <div class="reward">${b.reward} cr<small>per winner</small></div>
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div>
@@ -616,6 +641,7 @@ async function openDetail(id){
     const winHtml=c.winners.length?`<div class="d-winners">${c.winners.map(w=>`<span class="w"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="display:inline-block;vertical-align:-2px;margin-right:3px"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 6H4.5v1.5A2.5 2.5 0 0 0 7 10M17 6h2.5v1.5A2.5 2.5 0 0 1 17 10M9.5 18h5M12 14v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>@${esc(w.player)}</span>`).join('')}</div>`:'';
     let action;
     if(c.full) action=`<div class="d-box" style="color:var(--red)">Slots are filled — this dare is closed.</div>`;
+    else if(!isOpen(c)) action=`<div class="d-box" style="color:var(--red)">This dare expired — the bounty went back to its creator.</div>`;
     else if(ME&&ME.username===c.creator) action=`<div class="d-box">This is your dare — you can't complete your own bounty.</div>`;
     else if(c.mySubmission) action=`<div class="d-box" style="color:var(--lime)">✓ You already submitted to this dare. Check Profile for status.</div>`;
     else action=`
@@ -630,6 +656,7 @@ async function openDetail(id){
       <div class="d-code">${c.code} · by <span class="plink" data-player="${esc(c.creator)}">@${esc(c.creator)}</span></div>
       <div class="d-title">${esc(c.title)}</div>
       <div class="d-reward">${c.reward} cr<small>per winner · ${c.slots[0]}/${c.maxWinners} slots filled</small></div>
+      ${c.expiresAt&&!c.full?`<div style="margin-top:10px">${deadlineTag(c.expiresAt)}</div>`:''}
       <div class="slots" style="margin:16px 0"><div class="track">${segs}</div></div>
       ${winHtml}
       <div class="d-box"><div class="lbl">The dare</div>${esc(c.desc)}</div>
@@ -741,9 +768,9 @@ function calc(){const r=+$('#f-rw').value||0,n=+$('#f-w').value;
 $('#f-rw').oninput=calc;$('#f-w').onchange=calc;calc();
 $('#create-btn').onclick=async()=>{
   const title=$('#f-t').value.trim(),desc=$('#f-d').value.trim(),rules=$('#f-r').value.trim();
-  const reward=+$('#f-rw').value,maxWinners=+$('#f-w').value;
+  const reward=+$('#f-rw').value,maxWinners=+$('#f-w').value,expiresInDays=+$('#f-x').value;
   if(!title||!desc){toast('Fill in the title and description.');return;}
-  try{ const r=await api('/api/challenges',{method:'POST',body:JSON.stringify({title,desc,rules,reward,maxWinners})});
+  try{ const r=await api('/api/challenges',{method:'POST',body:JSON.stringify({title,desc,rules,reward,maxWinners,expiresInDays})});
     toast(`${r.code} posted! Locked ${r.locked} cr.`); haptic('success'); confetti(); await refreshMe(); go('bounties');
     $('#f-t').value='';$('#f-d').value='';$('#f-r').value='';
   }catch(e){ toast(e.message); }
@@ -782,7 +809,8 @@ async function loadProfile(){
     $('#p-subs').querySelectorAll('[data-sharewin]').forEach(b=>b.onclick=()=>shareWin(b.dataset.sharewin));
     $('#p-dares').innerHTML=a.challenges.length?a.challenges.map(b=>{
       const segs=Array.from({length:b.maxWinners},(_,i)=>`<div class="seg ${i<b.slots[0]?'on':''}"></div>`).join('');
-      return `<div class="card"><div class="c-top"><span class="c-id">${b.code}</span><span class="tag ${b.full?'full':'live'}"><span class="d"></span>${b.full?'filled':'live'}</span></div>
+      const live=isOpen(b), lab=b.full?'filled':(live?'live':'expired');
+      return `<div class="card"><div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${live?deadlineTag(b.expiresAt):''}<span class="tag ${live?'live':'full'}"><span class="d"></span>${lab}</span></span></div>
         <h3>${esc(b.title)}</h3><div class="reward">${b.reward} cr<small>per winner</small></div>
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div></div>`;
     }).join(''):'<div style="color:var(--muted)">No posted dares yet.</div>';

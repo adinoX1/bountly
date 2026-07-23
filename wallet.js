@@ -59,9 +59,13 @@ export async function withClient(pool, fn) {
 // ---- writes -------------------------------------------------
 
 // Create a dare WITH content, locking escrow + fee, atomically.
-export async function createDare(db, { creatorId, title, desc, rules, rewardUsdt, maxWinners, feeBps = L.CREATOR_FEE_BPS }) {
+// expiresInDays caps how long the creator's escrow can stay locked; null means
+// "never expires", which is what every dare used to be.
+export async function createDare(db, { creatorId, title, desc, rules, rewardUsdt, maxWinners, feeBps = L.CREATOR_FEE_BPS, expiresInDays = null }) {
   const reward = toMicro(rewardUsdt);
   if (reward <= 0 || maxWinners < 1) throw new Error('bad dare params');
+  const ttl = expiresInDays == null ? null : Number(expiresInDays);
+  if (ttl != null && !(ttl > 0 && ttl <= 365)) throw new Error('expiresInDays must be between 1 and 365');
   const total = reward * maxWinners;
   const fee = Math.floor(total * feeBps / 10000);
   return L.withTx(db, async () => {
@@ -78,11 +82,14 @@ export async function createDare(db, { creatorId, title, desc, rules, rewardUsdt
         { accountId: fees,    amount: +fee },
       ] });
     const d = await db.query(
-      `INSERT INTO dares(code, creator_id, reward, max_winners, fee_bps, escrow_locked, title, descr, rules)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      `INSERT INTO dares(code, creator_id, reward, max_winners, fee_bps, escrow_locked, title, descr, rules, expires_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,
+                CASE WHEN $10::float8 IS NULL THEN NULL ELSE now() + ($10::float8 * interval '1 day') END)
+         RETURNING id, expires_at`,
       [code, String(creatorId), reward, maxWinners, feeBps, total,
-       String(title).slice(0, 120), String(desc).slice(0, 500), String(rules || '').slice(0, 400)]);
-    return { dareId: Number(d.rows[0].id), code, lockedUsdt: toUsdt(total + fee) };
+       String(title).slice(0, 120), String(desc).slice(0, 500), String(rules || '').slice(0, 400), ttl]);
+    return { dareId: Number(d.rows[0].id), code, lockedUsdt: toUsdt(total + fee),
+      expiresAt: d.rows[0].expires_at ? new Date(d.rows[0].expires_at).getTime() : null };
   });
 }
 
@@ -92,11 +99,15 @@ export async function submit(db, { dareId, hunterId, vhash = null, file = null, 
   const hunter = String(hunterId);
   return L.withTx(db, async () => {
     const dr = await db.query(
-      `SELECT status, creator_id, max_winners FROM dares WHERE id=$1 FOR UPDATE`, [dareId]);
+      `SELECT status, creator_id, max_winners, expires_at FROM dares WHERE id=$1 FOR UPDATE`, [dareId]);
     if (!dr.rows.length) throw new Error('dare not found');
     const dare = dr.rows[0];
     if (dare.status !== 'open') throw new Error('dare not open');
     if (dare.creator_id === hunter) throw new Error("you can't complete your own dare");
+    // the sweeper runs on an interval, so a dare can be past its deadline and
+    // still be status='open' — don't let anyone slip a proof in through the gap
+    if (dare.expires_at && new Date(dare.expires_at).getTime() <= Date.now())
+      throw new Error('this dare has expired');
 
     const won = await db.query(
       `SELECT count(*)::int AS n FROM submissions WHERE dare_id=$1 AND status='approved'`, [dareId]);
@@ -150,7 +161,8 @@ export async function listDares(db) {
     id: Number(d.id), code: d.code, title: d.title, desc: d.descr, rules: d.rules,
     reward: toUsdt(d.reward), maxWinners: d.max_winners, creator: d.creator_id,
     slots: [d.won, d.max_winners], full: d.won >= d.max_winners,
-    subs: d.subs, pending: d.pending,
+    subs: d.subs, pending: d.pending, status: d.status,
+    expiresAt: d.expires_at ? new Date(d.expires_at).getTime() : null,
   }));
 }
 
@@ -184,6 +196,48 @@ export async function recentTxns(db, limit = 200) {
      GROUP BY t.id ORDER BY t.id DESC LIMIT $1`, [limit]);
   return r.rows.map(t => ({ id: Number(t.id), type: t.type, ref: t.ref, at: t.created_at,
     entries: t.entries.map(e => ({ account: e.account, usdt: toUsdt(e.usdt) })) }));
+}
+
+// ---- expiry ---------------------------------------------------
+// Without this a dare nobody completes locks the creator's escrow forever —
+// the only way out was an admin deleting the dare by hand.
+//
+// A dare with proofs still awaiting review is deliberately NOT expired: the
+// hunter did their part and is waiting on us, so refunding the creator out
+// from under them would be the wrong call. Those are returned as `blocked`
+// so they show up somewhere instead of silently sitting there.
+export async function expireDares(pool, log = console) {
+  const rows = (await pool.query(`
+    SELECT d.id, d.code, d.creator_id, d.escrow_locked,
+           EXISTS (SELECT 1 FROM submissions s WHERE s.dare_id=d.id AND s.status='pending') AS has_pending
+      FROM dares d
+     WHERE d.status='open' AND d.expires_at IS NOT NULL AND d.expires_at <= now()`)).rows;
+
+  const expired = [], blocked = [];
+  for (const d of rows) {
+    if (d.has_pending) { blocked.push({ code: d.code, creator: d.creator_id }); continue; }
+    try {
+      // one transaction per dare: a single failure must not block the rest
+      const r = await withClient(pool, c => L.refundDare(c, Number(d.id)));
+      expired.push({ dareId: Number(d.id), code: d.code, creator: d.creator_id, refundedUsdt: toUsdt(r.refunded) });
+    } catch (e) { log.error?.('expireDares', d.code, e.message); }
+  }
+  return { expired, blocked };
+}
+
+// Run the sweeper on an interval. `onExpired(entry)` lets the caller notify the
+// creator — the username -> telegram id mapping lives outside this module.
+export function startExpiryWatcher(pool, { everyMs = 5 * 60e3, onExpired = null, log = console } = {}) {
+  const tick = () => expireDares(pool, log)
+    .then(r => { for (const e of r.expired) {
+      log.log?.(`dare ${e.code} expired — refunded ${e.refundedUsdt} to @${e.creator}`);
+      try { onExpired?.(e); } catch (_) {}
+    } })
+    .catch(e => log.error?.('expiry watcher:', e.message));
+  tick();
+  const t = setInterval(tick, everyMs);
+  t.unref?.();
+  return t;
 }
 
 // monitoring passthroughs

@@ -80,10 +80,16 @@ export async function ledgerApi(ctx) {
     const reward = Math.max(0, Math.floor(Number(b.reward) || 0));
     const n = Math.max(1, Math.min(20, Math.floor(Number(b.maxWinners) || 1)));
     if (!b.title || !b.desc || reward < 1) { json(res, 400, { error: 'title, desc and reward required' }); return true; }
+    // A deadline is the only thing that gets the creator's escrow back if the
+    // dare is never completed, so it defaults on (DARE_TTL_DAYS, 0 = never).
+    const defTtl = Number(process.env.DARE_TTL_DAYS ?? 14);
+    const days = b.expiresInDays == null ? (defTtl > 0 ? defTtl : null) : Number(b.expiresInDays);
     try {
       const r = await tx(ctx, c => wallet.createDare(c, { creatorId: uname,
-        title: b.title, desc: b.desc, rules: b.rules, rewardUsdt: reward, maxWinners: n }));
-      json(res, 200, { ok: true, code: r.code, locked: r.lockedUsdt, credits: await wallet.balance(pool, uname) });
+        title: b.title, desc: b.desc, rules: b.rules, rewardUsdt: reward, maxWinners: n,
+        expiresInDays: days }));
+      json(res, 200, { ok: true, code: r.code, locked: r.lockedUsdt, expiresAt: r.expiresAt,
+        credits: await wallet.balance(pool, uname) });
     } catch (e) { json(res, 400, { error: e.message }); }
     return true;
   }

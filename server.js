@@ -19,7 +19,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ledgerApi } from "./server_ledger.js";
-import { initLedger, withClient } from "./wallet.js";
+import { initLedger, withClient, startExpiryWatcher } from "./wallet.js";
 import { migrateAppState } from "./migrate_to_ledger.mjs";
 import { startDepositWatcher } from "./ton.js";
 import * as solana from "./solana.js";
@@ -161,7 +161,9 @@ async function registerTelegram(){
   } catch (e){ console.error("registerTelegram:", e.message); }
 }
 
-const DB_FILE = path.join(__dirname, "data.json");
+// DATA_FILE mirrors UPLOAD_DIR: it keeps the JSON store out of the source tree
+// (and lets tests run against a throwaway file instead of the repo's own).
+const DB_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 const UP_DIR  = process.env.UPLOAD_DIR || path.join(__dirname, "uploads");
 if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 
@@ -310,7 +312,34 @@ function challengeView(ch){
   const st = stats(ch);
   return { id: ch.id, code: ch.code, title: ch.title, desc: ch.desc, rules: ch.rules, reward: ch.reward,
     maxWinners: ch.maxWinners, creator: ch.creator, slots: [st.winners.length, ch.maxWinners], full: st.full,
-    subs: st.subs, pending: st.pending, winners: st.winners.map(w => ({ player: w.player, at: w.at })) };
+    subs: st.subs, pending: st.pending, expiresAt: ch.expiresAt || null, expired: !!ch.expired,
+    winners: st.winners.map(w => ({ player: w.player, at: w.at })) };
+}
+
+// ---- dare expiry (JSON mode; the LEDGER path has its own sweeper in wallet.js) ----
+// Without a deadline the creator's escrow stays locked forever when nobody
+// completes the dare — the only way out was an admin deleting it by hand.
+const DARE_TTL_DAYS = Number(process.env.DARE_TTL_DAYS ?? 14);
+function expireChallenges(){
+  const now = Date.now(); const done = [];
+  for (const ch of db.challenges){
+    if (ch.expired || !ch.expiresAt || ch.expiresAt > now) continue;
+    // a hunter is waiting on review — refunding the creator now would be unfair
+    if (stats(ch).pending > 0) continue;
+    const refund = Math.max(0, ch.reward * (ch.maxWinners - winnersOf(ch).length));
+    const creator = Object.values(db.users).find(x => x.username === ch.creator);
+    if (creator && refund > 0){ creator.credits += refund; tx("refund", "escrow", ch.creator, refund, ch.code + " expired"); }
+    ch.expired = true;
+    done.push({ code: ch.code, creator: ch.creator, refunded: refund, creatorId: creator && creator.id });
+  }
+  if (done.length){
+    save();
+    for (const d of done){
+      console.log(`dare ${d.code} expired — refunded ${d.refunded} to @${d.creator}`);
+      if (d.creatorId) notify(d.creatorId, `⏳ Your dare ${d.code} expired — nobody claimed it.\n${d.refunded} cr has been refunded to your balance.`);
+    }
+  }
+  return done;
 }
 
 // ---- multipart parser (minimal, for single video file) ----
@@ -621,9 +650,12 @@ const server = http.createServer(async (req, res) => {
       const total = rw * n, fee = Math.round(total * CREATOR_FEE);
       if (u.credits < total + fee) return json(res, 400, { error: `not enough credits (need ${total + fee}, have ${u.credits})` });
       u.credits -= (total + fee);
+      const ttlRaw = body.expiresInDays == null ? (DARE_TTL_DAYS > 0 ? DARE_TTL_DAYS : null) : Number(body.expiresInDays);
+      if (ttlRaw != null && !(ttlRaw > 0 && ttlRaw <= 365)) return json(res, 400, { error: "expiresInDays must be between 1 and 365" });
       const id = ++db.seq.ch, code = "BNT-" + String(id).padStart(3, "0");
       db.challenges.push({ id, code, title: String(body.title).slice(0, 120), desc: String(body.desc).slice(0, 500),
-        rules: String(body.rules || "Say the code in the video.").slice(0, 400), reward: rw, maxWinners: n, creator: u.username, createdAt: Date.now() });
+        rules: String(body.rules || "Say the code in the video.").slice(0, 400), reward: rw, maxWinners: n, creator: u.username,
+        createdAt: Date.now(), expiresAt: ttlRaw == null ? null : Date.now() + ttlRaw * 86400e3 });
       tx("escrow", u.username, "escrow", total, code); tx("fee", u.username, "platform", fee, code + " 5%"); save();
       return json(res, 200, { ok: true, code, locked: total + fee, credits: u.credits });
     }
@@ -634,6 +666,8 @@ const server = http.createServer(async (req, res) => {
       if (u.banned) return json(res, 403, { error: "banned" });
       const ch = db.challenges.find(c => c.id === Number(m[1])); if (!ch) return json(res, 404, { error: "not found" });
       if (ch.creator === u.username) return json(res, 403, { error: "you can't complete your own dare" });
+      // the sweeper runs on an interval, so check the deadline directly too
+      if (ch.expired || (ch.expiresAt && ch.expiresAt <= Date.now())) return json(res, 400, { error: "this dare has expired" });
       if (stats(ch).full) return json(res, 400, { error: "slots full" });
       if (db.submissions.find(s => s.chId === ch.id && s.userId === u.id && s.status !== "rejected")) return json(res, 400, { error: "you already submitted to this dare" });
       const id = ++db.seq.sub;
@@ -799,6 +833,11 @@ initStore()
   .then(() => server.listen(PORT, () => console.log(
     `Bountly running on http://localhost:${PORT} · storage: ${USE_DB ? "Postgres" : "local JSON"} · uploads: ${UP_DIR} · BOT_TOKEN ${BOT_TOKEN ? "set" : "NOT set (DEV mode)"}`)))
   .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool); })
+  .then(() => { if (!(LEDGER && USE_DB)){ const t = setInterval(expireChallenges, 5 * 60e3); t.unref?.(); expireChallenges(); } })
+  .then(() => { if (LEDGER && USE_DB) startExpiryWatcher(pool, { onExpired: e => {
+    const creator = Object.values(db.users).find(x => x.username === e.creator);
+    if (creator) notify(creator.id, `⏳ Your dare ${e.code} expired — nobody claimed it.\n${e.refundedUsdt} cr has been refunded to your balance.`);
+  } }); })
   .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool).then(() => console.log("✓ Solana deposits enabled (SOLANA=1)")).catch(e => console.error("Solana schema:", e.message)); })
   .then(() => registerTelegram())
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });

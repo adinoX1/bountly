@@ -84,6 +84,51 @@ await W.deposit(db, 'creator', 5, 'admin-set:' + crypto.randomUUID());
 await W.deposit(db, 'creator', 5, 'admin-set:' + crypto.randomUUID());
 ok(true, 'two admin-set adjustments both land (unique refs)');
 
+console.log('\n-- dare expiry --');
+await W.deposit(db, 'expo', 200, 'tx-expo');
+const never = await W.createDare(db, { creatorId: 'expo', title: 'No deadline', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1 });
+eq(never.expiresAt, null, 'no deadline by default at the wallet layer');
+const dated = await W.createDare(db, { creatorId: 'expo', title: 'Dated', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1, expiresInDays: 7 });
+ok(dated.expiresAt > Date.now(), 'deadline is in the future');
+ok((await W.listDares(db)).find(d => d.id === dated.dareId).expiresAt === dated.expiresAt, 'deadline is exposed to the UI');
+await throws(() => W.createDare(db, { creatorId: 'expo', title: 'Bad', desc: 'x', rules: 'y', rewardUsdt: 1, maxWinners: 1, expiresInDays: 0 }), 'expiresInDays=0 is rejected');
+await throws(() => W.createDare(db, { creatorId: 'expo', title: 'Bad', desc: 'x', rules: 'y', rewardUsdt: 1, maxWinners: 1, expiresInDays: 900 }), 'expiresInDays=900 is rejected');
+
+let bal = await W.balance(db, 'expo');
+let sweep = await W.expireDares(db);
+eq(sweep.expired.length, 0, 'nothing expires before its deadline');
+eq(await W.balance(db, 'expo'), bal, 'balance untouched');
+
+// push both dares into the past; only the dated one should be swept
+await db.query(`UPDATE dares SET expires_at = now() - interval '1 day' WHERE id=$1`, [dated.dareId]);
+sweep = await W.expireDares(db);
+eq(sweep.expired.length, 1, 'the overdue dare is swept');
+eq(sweep.expired[0].refundedUsdt, 10, 'its full escrow comes back');
+eq(await W.balance(db, 'expo'), bal + 10, 'creator refunded');
+eq((await W.listDares(db)).find(d => d.id === dated.dareId).status, 'cancelled', 'dare marked cancelled');
+eq((await W.expireDares(db)).expired.length, 0, 'sweeping twice does not double-refund');
+await throws(() => W.submit(db, { dareId: dated.dareId, hunterId: 'late', vhash: 'late1' }), 'cannot submit to an expired dare');
+
+console.log('\n-- expiry defers to hunters waiting on review --');
+const pend = await W.createDare(db, { creatorId: 'expo', title: 'Pending', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1, expiresInDays: 7 });
+await W.submit(db, { dareId: pend.dareId, hunterId: 'patient', vhash: 'p1' });
+await db.query(`UPDATE dares SET expires_at = now() - interval '1 day' WHERE id=$1`, [pend.dareId]);
+sweep = await W.expireDares(db);
+eq(sweep.expired.length, 0, 'a dare with a pending proof is not expired');
+eq(sweep.blocked.length, 1, 'it is reported as blocked instead');
+eq(sweep.blocked[0].code, (await W.listDares(db)).find(d => d.id === pend.dareId).code, 'blocked entry names the dare');
+// once the proof is reviewed the sweeper can proceed
+await W.reject(db, (await W.adminQueue(db)).find(q => q.player === 'patient').id, 'not valid');
+sweep = await W.expireDares(db);
+eq(sweep.expired.length, 1, 'after review the dare expires normally');
+
+console.log('\n-- the deadline gap is closed --');
+// past its deadline but the sweeper has not run yet: still status='open'
+const gap = await W.createDare(db, { creatorId: 'expo', title: 'Gap', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1, expiresInDays: 7 });
+await db.query(`UPDATE dares SET expires_at = now() - interval '1 second' WHERE id=$1`, [gap.dareId]);
+eq((await W.listDares(db)).find(d => d.id === gap.dareId).status, 'open', 'still open until the sweeper runs');
+await throws(() => W.submit(db, { dareId: gap.dareId, hunterId: 'sneaky', vhash: 'sneak' }), 'no slipping a proof in through the gap');
+
 console.log('\n-- invariants --');
 eq(await W.conservation(db), 0, 'everything sums to 0');
 ok((await W.reconcile(db)).length === 0, 'cached balances match journal');
