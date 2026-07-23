@@ -163,6 +163,27 @@ footer a{color:var(--lime);text-decoration:none}
 .d-reward small{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:500;display:block}
 .d-box{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0;font-size:14px;line-height:1.6;color:#c9cdd2}
 .d-box .lbl{font-family:var(--mono);font-size:11px;color:var(--lime);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+/* ---- guided deposit flow ---- */
+.dep-bal{display:flex;align-items:baseline;justify-content:space-between;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+.dep-bal .k{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.dep-bal .v{font-size:26px;font-weight:800;color:var(--lime);letter-spacing:-.02em}
+.dep-seg{display:flex;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:5px;margin-bottom:16px}
+.dep-seg button{flex:1;padding:10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-family:var(--mono);font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+.dep-seg button.on{background:var(--lime);color:#000}
+.dep-amt{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 12px;margin-top:6px}
+.dep-amt input{flex:1;border:0;background:transparent;color:var(--txt);font-size:16px;font-weight:700;padding:8px 0;outline:none}
+.dep-amt .cur{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.dep-chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.dep-chips button{padding:5px 12px;border:1px solid var(--line2);border-radius:20px;background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer}
+.dep-chips button:hover{color:var(--txt);border-color:var(--lime)}
+.dep-status{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);padding:12px 14px;background:var(--bg);border:1px solid var(--line);border-radius:12px;margin:16px 0}
+.dep-status .dot{width:9px;height:9px;border-radius:50%;background:#ff9f45;flex-shrink:0;animation:tagpulse 1.4s ease-in-out infinite}
+.dep-status.done{color:var(--lime)} .dep-status.done .dot{background:var(--lime);animation:none}
+.dep-hist{margin-top:6px}
+.dep-hist .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:13px}
+.dep-hist .row .amt{font-family:var(--mono);color:var(--lime);font-weight:600}
+.dep-hist .row .src{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dep-load,.dep-err{color:var(--muted);text-align:center;padding:30px}
 .d-winners{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
 .d-winners .w{font-family:var(--mono);font-size:12px;color:var(--lime);background:rgba(244,33,46,.1);padding:4px 10px;border-radius:7px}
 /* upload dropzone */
@@ -1042,34 +1063,87 @@ document.addEventListener('click',e=>{ if(e.target.closest('.btn')) haptic('ligh
 function copyText(t){ try{navigator.clipboard.writeText(t);}catch(e){} toast('Copied'); haptic('light'); }
 function _depQR(t,id){var el=document.getElementById(id||'dep-qr');if(!el)return;var d=function(){try{el.innerHTML='';new QRCode(el,{text:t,width:176,height:176,correctLevel:QRCode.CorrectLevel.M});}catch(e){}};if(window.QRCode)return d();var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=d;s.onerror=function(){el.innerHTML='<div style="color:var(--muted);font-size:12px">Scan unavailable — use the button</div>';};document.head.appendChild(s);}
 function _depOpen(dl){ try{ (window.Telegram&&Telegram.WebApp&&Telegram.WebApp.openLink)?Telegram.WebApp.openLink(dl):window.open(dl,'_blank'); }catch(e){ window.open(dl,'_blank'); } }
+// ---- guided deposit flow ----
+// State for the open wallet modal. `startBalance` lets the poller detect an
+// incoming transfer and flip the status line to a success state.
+let DEP={ w:null, method:null, amount:'', startBalance:0, poll:null };
+function depMethods(w){ const m=[];
+  if(w.address) m.push({id:'ton', label:'TON · USDT', net:w.network});
+  if(w.sol)     m.push({id:'sol', label:'Solana · USDC', net:w.sol.network});
+  return m; }
+function depDeepLink(){ const {w,method,amount}=DEP;
+  if(method==='sol'){ let dl='solana:'+w.sol.address+'?spl-token='+encodeURIComponent(w.sol.mint);
+    if(+amount>0) dl+='&amount='+(+amount); return dl; }
+  let dl='https://app.tonkeeper.com/transfer/'+w.address+'?text='+encodeURIComponent(w.comment);
+  if(w.jetton) dl+='&jetton='+encodeURIComponent(w.jetton); return dl; }   // wallet handles the jetton amount
+function depMin(){ const {w,method}=DEP; return method==='sol'? (w.sol.min+' USDC') : 'a small amount of USDT'; }
+
 async function openWallet(){
-$('#wallet').classList.add('show'); haptic('light');
-const b=$('#wallet-body'); b.innerHTML='<div style="color:var(--muted);text-align:center;padding:30px">Loading…</div>';
-try{ const w=await api('/api/wallet/info');
-if(!w.address){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
-const memo=encodeURIComponent(w.comment); let dl='https://app.tonkeeper.com/transfer/'+w.address+'?text='+memo; if(w.jetton) dl+='&jetton='+encodeURIComponent(w.jetton);
-b.innerHTML=`<div class="d-box"><div class="lbl">Your balance</div><div class="d-reward">${w.balance} cr</div></div>
-${w.sol?`<div class="d-box"><div class="lbl">Deposit USDC on Solana (${esc(w.sol.network)}) — your own address, no memo</div>
-<div class="id-box" style="word-break:break-all">${esc(w.sol.address)}</div>
-<button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.sol.address)}">Copy Solana address</button>
-<div id="sol-qr" style="display:flex;justify-content:center;padding:12px 0"></div>
-<div style="font-size:12px;color:var(--muted)">Send USDC here — this address is yours alone, no comment needed. Min ${w.sol.min} USDC.</div></div>`:''}
-<button class="btn btn-lime" id="dep-open" style="width:100%;margin:0 0 12px">Open in Tonkeeper</button>
-<div class="d-box" style="text-align:center"><div class="lbl">Or scan to pay</div><div id="dep-qr" style="display:flex;justify-content:center;padding:12px 0"></div></div>
-<div class="d-box"><div class="lbl">1 · Send USDT on ${esc(w.network)} to this address</div>
-<div class="id-box" style="word-break:break-all">${esc(w.address)}</div>
-<button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.address)}">Copy address</button></div>
-<div class="d-box"><div class="lbl">2 · Comment / memo — the button above fills this for you</div>
-<div class="id-box">${esc(w.comment)}</div>
-<button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.comment)}">Copy comment</button></div>
-<div class="d-box" style="font-size:13px;color:var(--muted)">${w.configured?'After the transfer confirms on-chain, your credits appear automatically. Without the comment we cannot match your deposit.':'Testnet: send with the comment above — an admin credits you after it confirms. Without the comment we cannot match your deposit.'}</div>`;
-b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
-const _ob=b.querySelector('#dep-open'); if(_ob)_ob.onclick=()=>{ haptic('light'); _depOpen(dl); }; _depQR(dl);
-if(w.sol){ _depQR('solana:'+w.sol.address+'?spl-token='+w.sol.mint,'sol-qr'); }
-}catch(e){ b.innerHTML=`<div style="color:var(--muted);text-align:center;padding:20px">${esc(e.message)}</div>`; }
+  $('#wallet').classList.add('show'); haptic('light');
+  const b=$('#wallet-body'); b.innerHTML='<div class="dep-load">Loading…</div>';
+  try{ const w=await api('/api/wallet/info');
+    const methods=depMethods(w);
+    if(!methods.length){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
+    DEP={ w, method:methods[0].id, amount:'', startBalance:w.balance, poll:DEP.poll };
+    renderWallet();
+    // watch for the transfer to land; the ledger credits it after on-chain confirmation
+    clearInterval(DEP.poll);
+    DEP.poll=setInterval(depTick, 5000);
+  }catch(e){ b.innerHTML=`<div class="dep-err">${esc(e.message)}</div>`; }
 }
-const _wx=$('#wallet-x'); if(_wx)_wx.onclick=()=>$('#wallet').classList.remove('show');
-const _wo=$('#wallet'); if(_wo)_wo.onclick=e=>{ if(e.target.id==='wallet')$('#wallet').classList.remove('show'); };
+function renderWallet(){
+  const {w,method}=DEP; const b=$('#wallet-body'); const methods=depMethods(w);
+  const isSol=method==='sol'; const addr=isSol? w.sol.address : w.address;
+  b.innerHTML=`
+    <div class="dep-bal"><span class="k">Your balance</span><span class="v">${w.balance} cr</span></div>
+    ${methods.length>1?`<div class="dep-seg" id="dep-seg">${methods.map(mm=>`<button data-m="${mm.id}" class="${mm.id===method?'on':''}">${esc(mm.label)}</button>`).join('')}</div>`:''}
+    <div class="d-box"><div class="lbl">Step 1 · Amount (optional)</div>
+      <div class="dep-amt"><input id="dep-amt" type="number" inputmode="decimal" placeholder="0.00" value="${esc(DEP.amount)}"><span class="cur">${isSol?'USDC':'USDT'}</span></div>
+      <div class="dep-chips">${[5,10,25,50].map(v=>`<button data-amt="${v}">+${v}</button>`).join('')}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px">Minimum ${depMin()}. Leave blank to enter it in your wallet.</div></div>
+    <button class="btn btn-lime" id="dep-open" style="width:100%;margin:0 0 14px">Open in ${isSol?'wallet':'Tonkeeper'}</button>
+    <div class="d-box" style="text-align:center"><div class="lbl">Step 2 · Or scan to pay</div>
+      <div id="dep-qr" style="display:flex;justify-content:center;padding:12px 0"></div></div>
+    <div class="d-box"><div class="lbl">${isSol?'Send USDC on '+esc(w.sol.network)+' to your address':'Send USDT on '+esc(w.network)+' to this address'}</div>
+      <div class="id-box" style="word-break:break-all">${esc(addr)}</div>
+      <button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(addr)}">Copy address</button></div>
+    ${isSol?`<div class="d-box" style="font-size:13px;color:var(--muted)">This address is yours alone — no comment or memo needed.</div>`
+      :`<div class="d-box"><div class="lbl">Comment / memo — required</div>
+        <div class="id-box">${esc(w.comment)}</div>
+        <button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.comment)}">Copy comment</button>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px">Without this exact comment we can't match your deposit to your account.</div></div>`}
+    <div class="dep-status" id="dep-status"><span class="dot"></span><span>Waiting for your transfer… credited automatically once it confirms on-chain.</span></div>
+    <div class="d-box"><div class="lbl">Recent deposits</div><div class="dep-hist" id="dep-hist"><div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div></div></div>`;
+
+  b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
+  const seg=b.querySelector('#dep-seg'); if(seg) seg.querySelectorAll('[data-m]').forEach(btn=>btn.onclick=()=>{ DEP.method=btn.dataset.m; haptic('light'); renderWallet(); });
+  const amt=b.querySelector('#dep-amt'); if(amt) amt.oninput=()=>{ DEP.amount=amt.value; _depQR(depDeepLink()); };
+  b.querySelectorAll('[data-amt]').forEach(c=>c.onclick=()=>{ DEP.amount=String((+DEP.amount||0)+(+c.dataset.amt)); if(amt)amt.value=DEP.amount; _depQR(depDeepLink()); haptic('light'); });
+  const ob=b.querySelector('#dep-open'); if(ob)ob.onclick=()=>{ haptic('light'); _depOpen(depDeepLink()); };
+  _depQR(depDeepLink());
+  loadDepHistory();
+}
+async function loadDepHistory(){
+  try{ const {deposits}=await api('/api/wallet/deposits'); const el=$('#dep-hist'); if(!el)return;
+    el.innerHTML=deposits.length?deposits.map(d=>`<div class="row"><span>${new Date(d.at).toLocaleDateString()}</span><span class="amt">+${d.amount} cr</span><span class="src">${esc(d.source)}</span></div>`).join('')
+      :'<div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div>';
+  }catch(e){/* deposits endpoint only exists in ledger mode — leave the placeholder */}
+}
+// poll for the incoming transfer; when the balance rises, celebrate and refresh history
+async function depTick(){
+  if(!$('#wallet').classList.contains('show')){ clearInterval(DEP.poll); return; }
+  try{ const w=await api('/api/wallet/info'); if(!DEP.w) return;
+    const bal=$('.dep-bal .v'); if(bal) bal.textContent=w.balance+' cr';
+    if(w.balance>DEP.startBalance){
+      const gained=w.balance-DEP.startBalance; DEP.startBalance=w.balance; DEP.w.balance=w.balance;
+      const st=$('#dep-status'); if(st){ st.classList.add('done'); st.querySelector('span:last-child').textContent=`Received +${gained} cr — you're topped up!`; }
+      haptic('success'); confetti(); refreshMe(); loadDepHistory();
+    } else if(DEP.w){ DEP.w.balance=w.balance; }
+  }catch(e){}
+}
+function closeWallet(){ $('#wallet').classList.remove('show'); clearInterval(DEP.poll); }
+const _wx=$('#wallet-x'); if(_wx)_wx.onclick=closeWallet;
+const _wo=$('#wallet'); if(_wo)_wo.onclick=e=>{ if(e.target.id==='wallet')closeWallet(); };
 const _db=$('#deposit-btn'); if(_db)_db.onclick=openWallet;
 
 </script>

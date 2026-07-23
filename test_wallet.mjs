@@ -37,6 +37,22 @@ const lb = await W.leaderboard(db);
 ok(lb.find(x => x.username === 'alice' && x.wins === 1 && x.earnedUsdt === 9), 'leaderboard alice 1 win / 9 earned');
 ok((await W.recentTxns(db, 50)).some(t => t.type === 'payout'), 'ledger txns include payouts');
 
+console.log('\n-- user deposit history (wallet screen) --');
+await W.deposit(db, 'diana', 20, 'onchain-d1');
+await W.deposit(db, 'diana', 15, 'onchain-d2');
+await W.deposit(db, 'diana', 5, 'admin-set:' + crypto.randomUUID());
+const dd = await W.userDeposits(db, 'diana');
+eq(dd.length, 3, 'diana has three deposits');
+eq(dd[0].amount, 5, 'newest deposit first');
+eq(dd[0].source, 'admin', 'admin-set deposits are tagged admin');
+eq(dd[2].source, 'on-chain', 'a real txhash is tagged on-chain');
+ok(dd.every(x => x.amount > 0), 'deposits report a positive amount');
+eq((await W.userDeposits(db, 'nobody')).length, 0, 'a user with no deposits gets an empty list');
+// creator was funded once (tx1) then posted several dares — only the deposit shows
+const cd = await W.userDeposits(db, 'creator');
+eq(cd.length, 1, 'funding dares does not add deposit rows');
+eq(cd[0].amount, 100, 'only the real deposit is listed');
+
 console.log('\n-- guard: extra winner rejected --');
 const dg = await W.createDare(db, { creatorId: 'creator', title: 'G', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1 });
 const g1 = await W.submit(db, { dareId: dg.dareId, hunterId: 'gina', vhash: 'g1' });

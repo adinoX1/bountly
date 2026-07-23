@@ -205,6 +205,12 @@ export async function ledgerApi(ctx) {
     return true;
   }
 
+  // ----- my own deposit history (powers the wallet history strip) -----
+  if (p === '/api/wallet/deposits' && method === 'GET') {
+    json(res, 200, { deposits: await wallet.userDeposits(pool, uname, 20) });
+    return true;
+  }
+
   // ----- deposit (admin-triggered, e.g. after confirming a TON testnet transfer) -----
   if (p === '/api/wallet/deposit' && method === 'POST') {
     if (!user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }

@@ -208,6 +208,19 @@ export async function leaderboard(db) {
   return r.rows.map(x => ({ username: x.username, wins: x.wins, earnedUsdt: toUsdt(x.earned) }));
 }
 
+// One user's own deposits, newest first — powers the wallet history strip.
+export async function userDeposits(db, userId, limit = 20) {
+  const r = await db.query(`
+    SELECT t.id, t.ref, EXTRACT(EPOCH FROM t.created_at)*1000 AS at, e.amount
+      FROM ledger_tx t
+      JOIN ledger_entries e ON e.tx_id=t.id
+      JOIN accounts a ON a.id=e.account_id
+     WHERE t.type='deposit' AND a.kind='user' AND a.owner_id=$1 AND e.amount>0
+     ORDER BY t.id DESC LIMIT $2`, [String(userId), limit]);
+  return r.rows.map(x => ({ id: Number(x.id), at: Number(x.at), amount: toUsdt(x.amount),
+    ref: x.ref || '', source: String(x.ref || '').startsWith('admin-set') ? 'admin' : 'on-chain' }));
+}
+
 export async function recentTxns(db, limit = 200) {
   const r = await db.query(`
     SELECT t.id, t.type, t.ref, t.created_at,

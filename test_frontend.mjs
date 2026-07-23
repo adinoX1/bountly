@@ -65,6 +65,31 @@ ok(tag(Date.now() + 6 * DAY).includes('5d left') || tag(Date.now() + 6 * DAY).in
 ok(tag(Date.now() + 3 * HOUR).includes('soon'), 'under 24h is flagged soon (amber)');
 ok(!tag(Date.now() + 5 * DAY).includes('soon'), 'plenty of time is not flagged soon');
 
+console.log('\n-- deposit flow helpers --');
+const dctx = vm.createContext({ Date, Math, String, JSON, encodeURIComponent, DEP: {} });
+vm.runInContext([grab('depMethods'), grab('depDeepLink'), grab('depMin')].join('\n'), dctx);
+const methods = wcfg => vm.runInContext(`depMethods(${JSON.stringify(wcfg)})`, dctx);
+const setDEP = d => { dctx.DEP = d; };
+const link = () => vm.runInContext('depDeepLink()', dctx);
+
+const wTonSol = { address: 'EQtonaddr', jetton: 'EQjetton', network: 'testnet',
+  comment: 'alice', sol: { address: 'SoLaddr', mint: 'MintUSDC', network: 'devnet', min: 0.5 } };
+eq(methods(wTonSol).length, 2, 'both chains configured → two methods');
+eq(methods({ address: 'x', network: 'testnet' }).length, 1, 'only TON → one method');
+eq(methods({ sol: { address: 'y', mint: 'm', network: 'devnet', min: 1 } }).length, 1, 'only Solana → one method');
+eq(methods({}).length, 0, 'nothing configured → no methods (screen shows "not live")');
+
+setDEP({ w: wTonSol, method: 'ton', amount: '' });
+ok(link().startsWith('https://app.tonkeeper.com/transfer/EQtonaddr'), 'TON deep link targets the deposit address');
+ok(link().includes('text=alice'), 'TON deep link carries the username as the comment');
+ok(link().includes('jetton=EQjetton'), 'TON deep link carries the USDT jetton');
+setDEP({ w: wTonSol, method: 'sol', amount: '' });
+ok(link().startsWith('solana:SoLaddr'), 'Solana link targets the per-user address');
+ok(link().includes('spl-token=MintUSDC'), 'Solana link pins the USDC mint (no look-alikes)');
+ok(!link().includes('amount='), 'no amount param when the field is blank');
+setDEP({ w: wTonSol, method: 'sol', amount: '25' });
+ok(link().includes('amount=25'), 'a typed amount rides along on the Solana link');
+
 console.log('\n-- the create form and API agree on the field name --');
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 ok(/id="f-x"/.test(html), 'deadline picker exists');
