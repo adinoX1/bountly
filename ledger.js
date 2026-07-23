@@ -147,6 +147,42 @@ export function submitProof(db, { dareId, hunterId, vhash = null }) {
   });
 }
 
+// How long after a rejection a hunter may appeal it (see appealSubmission).
+export const APPEAL_WINDOW_MS = 48 * 3600 * 1000;
+
+// Pay one winner slot for `sub` from `dare`'s escrow (minus the player fee).
+// Assumes both rows are already SELECT ... FOR UPDATE locked by the caller.
+// Shared by approveSubmission and resolveDispute so an appeal that succeeds
+// pays out through the exact same conserved transaction as a normal approval.
+async function payoutSlot(db, sub, dare, playerFeeBps) {
+  const approved = await db.query(
+    `SELECT count(*)::int AS n FROM submissions WHERE dare_id=$1 AND status='approved'`, [sub.dare_id]);
+  if (approved.rows[0].n >= dare.max_winners) throw new Error('all winner slots already filled');
+
+  const reward = Number(dare.reward);
+  if (Number(dare.escrow_locked) < reward) throw new Error('escrow underfunded — refusing payout');
+
+  const playerFee = Math.floor(reward * playerFeeBps / 10000);
+  const payout = reward - playerFee;
+
+  const escrow = await accountId(db, 'escrow');
+  const hunter = await accountId(db, 'user', sub.hunter_id);
+  const fees   = await accountId(db, 'platform_fees');
+  await postTx(db, { type: 'payout', ref: dare.code, meta: { submissionId: sub.id, dareId: sub.dare_id },
+    entries: [
+      { accountId: escrow, amount: -reward },
+      { accountId: hunter, amount: +payout },
+      { accountId: fees,   amount: +playerFee },
+    ] });
+
+  await db.query(`UPDATE submissions SET status='approved', decided_at=now() WHERE id=$1`, [sub.id]);
+  const left = Number(dare.escrow_locked) - reward;
+  const nowFilled = approved.rows[0].n + 1 >= dare.max_winners;
+  await db.query(`UPDATE dares SET escrow_locked=$1, status=$2 WHERE id=$3`,
+    [left, nowFilled ? 'closed' : 'open', sub.dare_id]);
+  return { payout, playerFee, slotsLeft: dare.max_winners - (approved.rows[0].n + 1) };
+}
+
 // Admin approves a submission -> pays one winner slot from escrow (minus player fee).
 export function approveSubmission(db, submissionId, { playerFeeBps = PLAYER_FEE_BPS } = {}) {
   return withTx(db, async () => {
@@ -158,43 +194,76 @@ export function approveSubmission(db, submissionId, { playerFeeBps = PLAYER_FEE_
     const d = await db.query(`SELECT * FROM dares WHERE id=$1 FOR UPDATE`, [sub.dare_id]);
     const dare = d.rows[0];
     if (dare.status !== 'open') throw new Error('dare not open');
-
-    const approved = await db.query(
-      `SELECT count(*)::int AS n FROM submissions WHERE dare_id=$1 AND status='approved'`, [sub.dare_id]);
-    if (approved.rows[0].n >= dare.max_winners) throw new Error('all winner slots already filled');
-
-    const reward = Number(dare.reward);
-    if (Number(dare.escrow_locked) < reward) throw new Error('escrow underfunded — refusing payout');
-
-    const playerFee = Math.floor(reward * playerFeeBps / 10000);
-    const payout = reward - playerFee;
-
-    const escrow = await accountId(db, 'escrow');
-    const hunter = await accountId(db, 'user', sub.hunter_id);
-    const fees   = await accountId(db, 'platform_fees');
-    await postTx(db, { type: 'payout', ref: dare.code, meta: { submissionId, dareId: sub.dare_id },
-      entries: [
-        { accountId: escrow, amount: -reward },
-        { accountId: hunter, amount: +payout },
-        { accountId: fees,   amount: +playerFee },
-      ] });
-
-    await db.query(`UPDATE submissions SET status='approved' WHERE id=$1`, [submissionId]);
-    const left = Number(dare.escrow_locked) - reward;
-    const nowFilled = approved.rows[0].n + 1 >= dare.max_winners;
-    await db.query(`UPDATE dares SET escrow_locked=$1, status=$2 WHERE id=$3`,
-      [left, nowFilled ? 'closed' : 'open', sub.dare_id]);
-    return { payout, playerFee, slotsLeft: dare.max_winners - (approved.rows[0].n + 1) };
+    return payoutSlot(db, sub, dare, playerFeeBps);
   });
 }
 
 export function rejectSubmission(db, submissionId, reason) {
   return withTx(db, async () => {
     const r = await db.query(
-      `UPDATE submissions SET status='rejected', reason=$2 WHERE id=$1 AND status='pending' RETURNING id`,
+      `UPDATE submissions SET status='rejected', reason=$2, decided_at=now() WHERE id=$1 AND status='pending' RETURNING id`,
       [submissionId, String(reason || '').slice(0, 200)]);
     if (!r.rows.length) throw new Error('submission not pending');
     return { ok: true };
+  });
+}
+
+// ---- dispute / appeal ----------------------------------------
+// A rejected hunter can contest the decision ONCE. This moves the proof to
+// 'disputed' — which is a live status (uniq_live_submission covers it and it
+// blocks the dare from expiring), so the slot it is fighting for is held while
+// a second reviewer takes a look. No money moves here; escrow only shifts when
+// the dispute is resolved.
+export function appealSubmission(db, submissionId, { windowMs = APPEAL_WINDOW_MS } = {}) {
+  return withTx(db, async () => {
+    const s = await db.query(`SELECT * FROM submissions WHERE id=$1 FOR UPDATE`, [submissionId]);
+    if (!s.rows.length) throw new Error('submission not found');
+    const sub = s.rows[0];
+    if (sub.status !== 'rejected') throw new Error('only a rejected proof can be appealed');
+    if (sub.appealed_at) throw new Error('you have already appealed this proof once');
+    if (sub.decided_at && Date.now() - new Date(sub.decided_at).getTime() > windowMs)
+      throw new Error('the appeal window has closed');
+
+    // the dare must still have a slot worth contesting
+    const d = await db.query(
+      `SELECT status, max_winners,
+              (SELECT count(*)::int FROM submissions WHERE dare_id=$1 AND status='approved') AS won
+         FROM dares WHERE id=$1 FOR UPDATE`, [sub.dare_id]);
+    const dare = d.rows[0];
+    if (!dare || dare.status !== 'open') throw new Error('this dare is already closed');
+    if (dare.won >= dare.max_winners) throw new Error('all winner slots are already filled');
+
+    // and the hunter can't have another live proof on the same dare
+    const live = await db.query(
+      `SELECT 1 FROM submissions WHERE dare_id=$1 AND hunter_id=$2 AND id<>$3
+              AND status IN ('pending','disputed','approved') LIMIT 1`,
+      [sub.dare_id, sub.hunter_id, submissionId]);
+    if (live.rows.length) throw new Error('you already have another live proof on this dare');
+
+    await db.query(`UPDATE submissions SET status='disputed', appealed_at=now() WHERE id=$1`, [submissionId]);
+    return { ok: true };
+  });
+}
+
+// A second reviewer resolves an open dispute: uphold the rejection (final, no
+// further appeal) or overturn it (pays the slot through payoutSlot()).
+export function resolveDispute(db, submissionId, { uphold, reason = null, playerFeeBps = PLAYER_FEE_BPS } = {}) {
+  return withTx(db, async () => {
+    const s = await db.query(`SELECT * FROM submissions WHERE id=$1 FOR UPDATE`, [submissionId]);
+    if (!s.rows.length) throw new Error('submission not found');
+    const sub = s.rows[0];
+    if (sub.status !== 'disputed') throw new Error('this proof is not under dispute');
+
+    if (uphold) {
+      await db.query(`UPDATE submissions SET status='rejected', decided_at=now(), reason=$2 WHERE id=$1`,
+        [submissionId, String(reason || sub.reason || '').slice(0, 200)]);
+      return { upheld: true };
+    }
+    const d = await db.query(`SELECT * FROM dares WHERE id=$1 FOR UPDATE`, [sub.dare_id]);
+    const dare = d.rows[0];
+    if (dare.status !== 'open') throw new Error('dare not open');
+    const r = await payoutSlot(db, sub, dare, playerFeeBps);
+    return { upheld: false, ...r };
   });
 }
 

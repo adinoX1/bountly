@@ -105,6 +105,41 @@ eq(r.code,200,'edit accepted');
 eq((await call('GET','/api/challenges',{ user:admin })).body.challenges.find(c=>c.id===solo).title,'Renamed solo','title actually changed in the ledger');
 eq((await call('POST',`/api/admin/challenge/${solo}/edit`,{ user:bob, body:{ title:'x' } })).code,403,'non-admin cannot edit');
 
+console.log('\n-- dispute flow through the API --');
+// fresh dare; bob submits, admin rejects, bob appeals, admin overturns → bob paid
+await call('POST','/api/wallet/deposit',{ user:admin, body:{ username:'creator', usdt:50 } });
+r = await call('POST','/api/challenges',{ user:admin, body:{ title:'Disputed', desc:'d', rules:'r', reward:10, maxWinners:1 } });
+const dispCode = r.body.code;
+const dispId = (await call('GET','/api/challenges',{ user:admin })).body.challenges.find(c=>c.code===dispCode).id;
+const dsub = (await call('POST',`/api/challenges/${dispId}/submit`,{ user:bob, body:{ file:'d.mp4' } })).body.submissionId;
+eq((await call('POST',`/api/admin/reject/${dsub}`,{ user:admin, body:{ reason:'too dark' } })).code,200,'admin rejects');
+let act = await call('GET','/api/me/activity',{ user:bob });
+eq(act.body.submissions.find(s=>s.id===dsub).canAppeal,true,'a fresh rejection is appealable');
+eq((await call('POST',`/api/submissions/${dsub}/appeal`,{ user:alice })).code,403,'only the owner can appeal');
+eq((await call('POST',`/api/submissions/${dsub}/appeal`,{ user:bob })).code,200,'owner appeals');
+eq((await call('POST',`/api/submissions/${dsub}/appeal`,{ user:bob })).code,400,'cannot appeal twice');
+eq((await call('GET','/api/admin/disputes',{ user:bob })).code,403,'non-admin cannot see the dispute queue');
+let dq = await call('GET','/api/admin/disputes',{ user:admin });
+eq(dq.body.disputes.length,1,'dispute queue has the appeal');
+eq(dq.body.disputes[0].reason,'too dark','queue shows the contested reason');
+const bobBefore = (await call('GET','/api/me',{ user:bob })).body.user.credits;
+eq((await call('POST',`/api/admin/dispute/${dsub}/resolve`,{ user:admin, body:{ uphold:false } })).code,200,'admin overturns');
+eq((await call('GET','/api/me',{ user:bob })).body.user.credits, bobBefore+9,'bob paid 9 on the overturn');
+eq((await call('GET','/api/admin/disputes',{ user:admin })).body.disputes.length,0,'dispute queue cleared');
+
+console.log('\n-- dispute upheld is final --');
+r = await call('POST','/api/challenges',{ user:admin, body:{ title:'Disputed2', desc:'d', rules:'r', reward:10, maxWinners:1 } });
+const d2Id = (await call('GET','/api/challenges',{ user:admin })).body.challenges.find(c=>c.code===r.body.code).id;
+const d2sub = (await call('POST',`/api/challenges/${d2Id}/submit`,{ user:bob, body:{ file:'d2.mp4' } })).body.submissionId;
+await call('POST',`/api/admin/reject/${d2sub}`,{ user:admin, body:{ reason:'nope' } });
+await call('POST',`/api/submissions/${d2sub}/appeal`,{ user:bob });
+const bobBefore2 = (await call('GET','/api/me',{ user:bob })).body.user.credits;
+eq((await call('POST',`/api/admin/dispute/${d2sub}/resolve`,{ user:admin, body:{ uphold:true } })).code,200,'admin upholds');
+eq((await call('GET','/api/me',{ user:bob })).body.user.credits, bobBefore2,'no payout when the reject is upheld');
+act = await call('GET','/api/me/activity',{ user:bob });
+eq(act.body.submissions.find(s=>s.id===d2sub).status,'rejected','upheld dispute ends rejected');
+eq(act.body.submissions.find(s=>s.id===d2sub).canAppeal,false,'cannot appeal a second time');
+
 console.log('\n-- auth: admin analytics blocked for non-admin --');
 eq((await call('GET','/api/admin/users',{ user:bob })).code,403,'non-admin blocked from /api/admin/users');
 eq((await call('GET','/api/admin/users',{ user:admin })).code,200,'admin allowed');

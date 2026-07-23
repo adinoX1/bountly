@@ -25,6 +25,12 @@ ALTER TABLE dares       ADD COLUMN IF NOT EXISTS descr TEXT NOT NULL DEFAULT '';
 ALTER TABLE dares       ADD COLUMN IF NOT EXISTS rules TEXT NOT NULL DEFAULT '';
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file  TEXT;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS video TEXT;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS decided_at  TIMESTAMPTZ;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS appealed_at TIMESTAMPTZ;
+-- widen the status CHECK to allow 'disputed' (see appealSubmission). Drop then
+-- re-add so it is safe to run on a database created by the older schema.
+ALTER TABLE submissions DROP CONSTRAINT IF EXISTS submissions_status_check;
+ALTER TABLE submissions ADD  CONSTRAINT submissions_status_check CHECK (status IN ('pending','approved','rejected','disputed'));
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_deposit_ref  ON ledger_tx(ref) WHERE type='deposit'  AND ref IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_withdraw_ref ON ledger_tx(ref) WHERE type='withdraw' AND ref IS NOT NULL;
 -- A rejected proof must not block a retry. The original table-level
@@ -140,7 +146,10 @@ export async function editDare(db, dareId, { title, desc, rules }) {
 
 export const approve  = (db, submissionId) => L.approveSubmission(db, submissionId);
 export const reject   = (db, submissionId, reason) => L.rejectSubmission(db, submissionId, reason);
+export const appeal   = (db, submissionId) => L.appealSubmission(db, submissionId);
+export const resolveDispute = (db, submissionId, opts) => L.resolveDispute(db, submissionId, opts);
 export const refund   = (db, dareId) => L.refundDare(db, dareId);
+export const APPEAL_WINDOW_MS = L.APPEAL_WINDOW_MS;
 export const deposit  = (db, userId, usdt, txhash) => L.deposit(db, String(userId), toMicro(usdt), txhash);
 export const withdraw = (db, userId, usdt, txhash) => L.withdraw(db, String(userId), toMicro(usdt), txhash);
 
@@ -173,6 +182,18 @@ export async function adminQueue(db) {
      WHERE s.status='pending' ORDER BY s.created_at ASC`);
   return r.rows.map(s => ({ id: Number(s.id), player: s.hunter_id, file: s.file, video: s.video,
     code: s.code, title: s.title, at: s.created_at }));
+}
+
+// Appeals waiting for a second reviewer. Includes the original reject reason so
+// the reviewer sees what was contested. Oldest appeal first — first in, first out.
+export async function disputeQueue(db) {
+  const r = await db.query(`
+    SELECT s.id, s.hunter_id, s.file, s.video, s.reason, s.created_at, s.appealed_at, d.code, d.title
+      FROM submissions s JOIN dares d ON d.id=s.dare_id
+     WHERE s.status='disputed' ORDER BY s.appealed_at ASC`);
+  return r.rows.map(s => ({ id: Number(s.id), player: s.hunter_id, file: s.file, video: s.video,
+    reason: s.reason || '', code: s.code, title: s.title, at: s.created_at,
+    appealedAt: s.appealed_at ? new Date(s.appealed_at).getTime() : null }));
 }
 
 export async function leaderboard(db) {
@@ -209,13 +230,15 @@ export async function recentTxns(db, limit = 200) {
 export async function expireDares(pool, log = console) {
   const rows = (await pool.query(`
     SELECT d.id, d.code, d.creator_id, d.escrow_locked,
-           EXISTS (SELECT 1 FROM submissions s WHERE s.dare_id=d.id AND s.status='pending') AS has_pending
+           EXISTS (SELECT 1 FROM submissions s
+                    WHERE s.dare_id=d.id AND s.status IN ('pending','disputed')) AS has_open_review
       FROM dares d
      WHERE d.status='open' AND d.expires_at IS NOT NULL AND d.expires_at <= now()`)).rows;
 
   const expired = [], blocked = [];
   for (const d of rows) {
-    if (d.has_pending) { blocked.push({ code: d.code, creator: d.creator_id }); continue; }
+    // a proof awaiting review OR an open dispute means someone is waiting on us
+    if (d.has_open_review) { blocked.push({ code: d.code, creator: d.creator_id }); continue; }
     try {
       // one transaction per dare: a single failure must not block the rest
       const r = await withClient(pool, c => L.refundDare(c, Number(d.id)));

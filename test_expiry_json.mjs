@@ -44,7 +44,7 @@ let srv;
 function boot(env = {}) {
   srv = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
     env: { ...process.env, PORT: String(PORT), DATA_FILE: dataFile, UPLOAD_DIR: tmp,
-      BOT_TOKEN: '', NODE_ENV: '', DATABASE_URL: '', LEDGER: '', SOLANA: '', ...env },
+      BOT_TOKEN: '', NODE_ENV: '', DATABASE_URL: '', LEDGER: '', SOLANA: '', ADMIN_IDS: 'boss', ...env },
     stdio: 'ignore',
   });
 }
@@ -127,6 +127,45 @@ try {
   if (!await waitForBoot()) throw new Error('server did not come back up');
   eq((await api('/api/me')).body.user.credits, beforePend, 'creator not refunded while a proof waits');
   eq((await api('/api/challenges')).body.challenges.find(c => c.code === pendCode).expired, false, 'dare still not marked expired');
+
+  console.log('\n-- dispute / appeal (JSON mode) --');
+  ok((await api('/api/me', { user: 'boss' })).body.user.isAdmin, 'boss is admin in DEV mode via ADMIN_IDS');
+  r = await api('/api/challenges', { user: 'creator', method: 'POST', body: { title: 'Contest', desc: 'd', reward: 10, maxWinners: 1 } });
+  const cCode = r.body.code;
+  const cId = (await api('/api/challenges')).body.challenges.find(c => c.code === cCode).id;
+  const sId = (await api(`/api/challenges/${cId}/submit`, { user: 'harry', method: 'POST', body: { file: 'h.mp4' } })).body.submissionId;
+  eq((await api(`/api/admin/reject/${sId}`, { user: 'boss', method: 'POST', body: { reason: 'too dark' } })).status, 200, 'admin rejects');
+  let act = await api('/api/me/activity', { user: 'harry' });
+  eq(act.body.submissions.find(s => s.id === sId).canAppeal, true, 'a fresh rejection is appealable');
+  eq((await api(`/api/submissions/${sId}/appeal`, { user: 'mallory', method: 'POST' })).status, 403, 'a stranger cannot appeal it');
+  eq((await api(`/api/submissions/${sId}/appeal`, { user: 'harry', method: 'POST' })).status, 200, 'the owner appeals');
+  eq((await api(`/api/submissions/${sId}/appeal`, { user: 'harry', method: 'POST' })).status, 400, 'cannot appeal twice');
+  eq(act.body.submissions.find(s => s.id === sId) && (await api('/api/me/activity', { user: 'harry' })).body.submissions.find(s => s.id === sId).status, 'disputed', 'proof now shows disputed');
+  eq((await api('/api/admin/disputes', { user: 'harry' })).status, 403, 'non-admin cannot read the dispute queue');
+  const dq = await api('/api/admin/disputes', { user: 'boss' });
+  eq(dq.body.disputes.length, 1, 'dispute queue has the appeal');
+  eq(dq.body.disputes[0].reason, 'too dark', 'queue keeps the contested reason');
+  const harryBefore = (await api('/api/me', { user: 'harry' })).body.user.credits;
+  eq((await api(`/api/admin/dispute/${sId}/resolve`, { user: 'boss', method: 'POST', body: { uphold: false } })).status, 200, 'admin overturns');
+  eq((await api('/api/me', { user: 'harry' })).body.user.credits, harryBefore + 9, 'harry paid 9 on the overturn');
+  eq((await api('/api/admin/disputes', { user: 'boss' })).body.disputes.length, 0, 'dispute queue cleared');
+
+  console.log('\n-- a disputed proof blocks expiry (JSON mode) --');
+  r = await api('/api/challenges', { user: 'creator', method: 'POST', body: { title: 'Contest2', desc: 'd', reward: 10, maxWinners: 1, expiresInDays: 1 } });
+  const c2Code = r.body.code;
+  const c2Id = (await api('/api/challenges')).body.challenges.find(c => c.code === c2Code).id;
+  const s2Id = (await api(`/api/challenges/${c2Id}/submit`, { user: 'harry', method: 'POST', body: { file: 'h2.mp4' } })).body.submissionId;
+  await api(`/api/admin/reject/${s2Id}`, { user: 'boss', method: 'POST', body: { reason: 'nope' } });
+  await api(`/api/submissions/${s2Id}/appeal`, { user: 'harry', method: 'POST' });
+  const beforeC2 = (await api('/api/me', { user: 'creator' })).body.user.credits;
+  await stop();
+  const st3 = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+  st3.challenges.find(c => c.code === c2Code).expiresAt = Date.now() - 86400e3;
+  fs.writeFileSync(dataFile, JSON.stringify(st3));
+  boot();
+  if (!await waitForBoot()) throw new Error('server did not come back up');
+  eq((await api('/api/me', { user: 'creator' })).body.user.credits, beforeC2, 'creator not refunded while a dispute is open');
+  eq((await api('/api/challenges')).body.challenges.find(c => c.code === c2Code).expired, false, 'contested dare not expired');
 } catch (e) {
   fail++; console.log('  FAIL: threw', e.message);
 }

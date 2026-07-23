@@ -20,6 +20,32 @@ import * as solana from './solana.js';
 
 const tx = (ctx, fn) => wallet.withClient(ctx.pool, fn);
 
+// admin identity lives in the JSON blob (ctx.db), not the ledger — used to fan
+// out review notifications (new dispute, etc.)
+const adminUsers = ctx => (ctx.db && ctx.db.users ? Object.values(ctx.db.users) : []).filter(u => u.isAdmin);
+const userByName = (ctx, uname) => (ctx.db && ctx.db.users ? Object.values(ctx.db.users) : []).find(u => u.username === uname);
+
+// tell a rejected hunter, and point out they can appeal (LEDGER reject was silent before)
+async function notifyDecision(ctx, pool, subId, reason) {
+  if (!ctx.notify) return;
+  const s = (await pool.query(
+    `SELECT s.hunter_id, d.code FROM submissions s JOIN dares d ON d.id=s.dare_id WHERE s.id=$1`, [subId])).rows[0];
+  const hunter = s && userByName(ctx, s.hunter_id);
+  if (hunter) ctx.notify(hunter.id,
+    `❌ Your proof for ${s.code} was rejected.\nReason: ${reason}\nYou can record a fresh proof, or appeal this once from your profile.`);
+}
+// tell the hunter how their appeal went
+async function notifyDispute(ctx, pool, subId, upheld) {
+  if (!ctx.notify) return;
+  const s = (await pool.query(
+    `SELECT s.hunter_id, d.code FROM submissions s JOIN dares d ON d.id=s.dare_id WHERE s.id=$1`, [subId])).rows[0];
+  const hunter = s && userByName(ctx, s.hunter_id);
+  if (!hunter) return;
+  ctx.notify(hunter.id, upheld
+    ? `⚖️ Your appeal on ${s.code} was reviewed — the rejection stands. This decision is final.`
+    : `🏆 Your appeal on ${s.code} was upheld — your proof was approved and the bounty paid out! 🎉`);
+}
+
 async function winnersOf(pool, dareId) {
   const r = await pool.query(
     `SELECT hunter_id AS player, EXTRACT(EPOCH FROM created_at)*1000 AS at
@@ -42,12 +68,21 @@ export async function ledgerApi(ctx) {
   // ----- my activity -----
   if (p === '/api/me/activity' && method === 'GET') {
     const challenges = (await wallet.listDares(pool)).filter(d => d.creator === uname);
+    const now = Date.now();
     const subs = (await pool.query(
-      `SELECT s.*, d.code, d.title FROM submissions s JOIN dares d ON d.id=s.dare_id
+      `SELECT s.*, d.code, d.title,
+              (d.status='open' AND (SELECT count(*) FROM submissions x WHERE x.dare_id=d.id AND x.status='approved') < d.max_winners) AS slot_free
+         FROM submissions s JOIN dares d ON d.id=s.dare_id
         WHERE s.hunter_id=$1 ORDER BY s.created_at DESC`, [uname])).rows
-      .map(s => ({ id: Number(s.id), code: s.code, title: s.title, file: s.file, video: s.video,
-        hasVideo: !!s.video, status: s.status, reason: s.reason,
-        at: s.created_at ? new Date(s.created_at).getTime() : 0 }));
+      .map(s => {
+        const decidedAt = s.decided_at ? new Date(s.decided_at).getTime() : null;
+        // the hunter may appeal a fresh rejection once, while a slot is still free
+        const canAppeal = s.status === 'rejected' && !s.appealed_at && s.slot_free &&
+          (decidedAt == null || now - decidedAt <= wallet.APPEAL_WINDOW_MS);
+        return { id: Number(s.id), code: s.code, title: s.title, file: s.file, video: s.video,
+          hasVideo: !!s.video, status: s.status, reason: s.reason, canAppeal,
+          at: s.created_at ? new Date(s.created_at).getTime() : 0 };
+      });
     const txns = (await wallet.recentTxns(pool, 200))
       .filter(t => t.entries.some(e => e.account === 'user:' + uname)).slice(0, 30);
     json(res, 200, { challenges, submissions: subs, txns });
@@ -130,6 +165,26 @@ export async function ledgerApi(ctx) {
     return true;
   }
 
+  // ----- appeal a rejected proof (hunter must own it) -----
+  m = p.match(/^\/api\/submissions\/(\d+)\/appeal$/);
+  if (m && method === 'POST') {
+    if (user.banned) { json(res, 403, { error: 'banned' }); return true; }
+    const subId = Number(m[1]);
+    const owns = await pool.query(`SELECT hunter_id FROM submissions WHERE id=$1`, [subId]);
+    if (!owns.rows.length) { json(res, 404, { error: 'not found' }); return true; }
+    if (owns.rows[0].hunter_id !== uname) { json(res, 403, { error: 'not your proof' }); return true; }
+    try {
+      await tx(ctx, c => wallet.appeal(c, subId));
+      json(res, 200, { ok: true });
+      // let the review team know a decision is being contested
+      const d = (await pool.query(
+        `SELECT d.code, d.title FROM submissions s JOIN dares d ON d.id=s.dare_id WHERE s.id=$1`, [subId])).rows[0];
+      if (d) for (const a of adminUsers(ctx))
+        ctx.notify?.(a.id, `⚖️ @${uname} appealed a rejected proof on ${d.code} — "${d.title}". It needs a second look.`);
+    } catch (e) { json(res, 400, { error: e.message }); }
+    return true;
+  }
+
   // ----- leaderboard -----
   if (p === '/api/leaderboard' && method === 'GET') {
     json(res, 200, { leaderboard: (await wallet.leaderboard(pool)).map(x => ({ username: x.username, wins: x.wins, earned: x.earnedUsdt })) });
@@ -207,8 +262,29 @@ export async function ledgerApi(ctx) {
     if (admin && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
     const reason = String((ctx.body && ctx.body.reason) || '').slice(0, 200);
     if (!reason) { json(res, 400, { error: 'reason required' }); return true; }
-    try { await tx(ctx, c => wallet.reject(c, Number(m[1]), reason)); json(res, 200, { ok: true }); }
-    catch (e) { json(res, 400, { error: e.message }); }
+    try {
+      await tx(ctx, c => wallet.reject(c, Number(m[1]), reason));
+      json(res, 200, { ok: true });
+      await notifyDecision(ctx, pool, Number(m[1]), reason);
+    } catch (e) { json(res, 400, { error: e.message }); }
+    return true;
+  }
+  // ----- disputes: the queue + a second reviewer's decision -----
+  if ((p === '/api/admin/disputes' || p === '/api/dash/disputes') && method === 'GET') {
+    if (admin && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
+    json(res, 200, { disputes: await wallet.disputeQueue(pool) });
+    return true;
+  }
+  m = p.match(/^\/api\/(?:admin|dash)\/dispute\/(\d+)\/resolve$/);
+  if (m && method === 'POST') {
+    if (admin && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
+    const uphold = !!(ctx.body && ctx.body.uphold);              // uphold the reject, or overturn → pay
+    const reason = String((ctx.body && ctx.body.reason) || '').slice(0, 200);
+    try {
+      const r = await tx(ctx, c => wallet.resolveDispute(c, Number(m[1]), { uphold, reason }));
+      json(res, 200, { ok: true, ...r });
+      await notifyDispute(ctx, pool, Number(m[1]), r.upheld);
+    } catch (e) { json(res, 400, { error: e.message }); }
     return true;
   }
   m = p.match(/^\/api\/(?:admin|dash)\/challenge\/(\d+)\/delete$/);

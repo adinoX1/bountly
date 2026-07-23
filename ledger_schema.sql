@@ -64,14 +64,22 @@ CREATE TABLE IF NOT EXISTS dares (
   expires_at    TIMESTAMPTZ
 );
 
+-- status:
+--   pending   -> awaiting review
+--   approved  -> paid a winner slot
+--   rejected  -> declined (the hunter may record a fresh proof, or appeal once)
+--   disputed  -> the hunter appealed a rejection; a live status held for re-review
 CREATE TABLE IF NOT EXISTS submissions (
   id          BIGSERIAL PRIMARY KEY,
   dare_id     BIGINT NOT NULL REFERENCES dares(id),
   hunter_id   TEXT NOT NULL,
   vhash       TEXT,                                       -- sha256 of the video (anti-replay)
-  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  status      TEXT NOT NULL DEFAULT 'pending',
   reason      TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at  TIMESTAMPTZ,                                -- when it was approved/rejected (appeal window runs from here)
+  appealed_at TIMESTAMPTZ,                                -- set once when the hunter appeals; blocks a second appeal
+  CONSTRAINT submissions_status_check CHECK (status IN ('pending','approved','rejected','disputed'))
 );
 -- a hunter can only have one LIVE (non-rejected) submission per dare.
 -- Partial on purpose: after a rejection they must be able to try again.

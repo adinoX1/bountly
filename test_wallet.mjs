@@ -129,6 +129,58 @@ await db.query(`UPDATE dares SET expires_at = now() - interval '1 second' WHERE 
 eq((await W.listDares(db)).find(d => d.id === gap.dareId).status, 'open', 'still open until the sweeper runs');
 await throws(() => W.submit(db, { dareId: gap.dareId, hunterId: 'sneaky', vhash: 'sneak' }), 'no slipping a proof in through the gap');
 
+console.log('\n-- dispute / appeal: overturned pays out --');
+await W.deposit(db, 'dispA', 100, 'tx-dispA');
+const dc = await W.createDare(db, { creatorId: 'dispA', title: 'Contest', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1 });
+const cs = await W.submit(db, { dareId: dc.dareId, hunterId: 'harry', vhash: 'har1' });
+await W.reject(db, cs.submissionId, 'too dark');
+eq((await W.disputeQueue(db)).length, 0, 'nothing disputed yet');
+await W.appeal(db, cs.submissionId);
+eq((await W.disputeQueue(db)).length, 1, 'appeal lands in the dispute queue');
+eq((await W.disputeQueue(db))[0].reason, 'too dark', 'dispute keeps the original reject reason');
+await throws(() => W.appeal(db, cs.submissionId), 'a proof can only be appealed once');
+ok((await W.listDares(db)).find(d => d.id === dc.dareId).full === false, 'the contested slot is still held');
+await W.resolveDispute(db, cs.submissionId, { uphold: false });   // overturn → pay
+eq(await W.balance(db, 'harry'), 9, 'overturning the reject pays the hunter 9');
+eq((await W.disputeQueue(db)).length, 0, 'dispute cleared');
+ok((await W.listDares(db)).find(d => d.id === dc.dareId).full === true, 'slot now filled');
+
+console.log('\n-- dispute / appeal: upheld is final --');
+const dc2 = await W.createDare(db, { creatorId: 'dispA', title: 'Contest2', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1 });
+const cs2 = await W.submit(db, { dareId: dc2.dareId, hunterId: 'ivan', vhash: 'iv1' });
+await W.reject(db, cs2.submissionId, 'not you');
+await W.appeal(db, cs2.submissionId);
+await W.resolveDispute(db, cs2.submissionId, { uphold: true });
+eq(await W.balance(db, 'ivan'), 0, 'upholding the reject pays nothing');
+await throws(() => W.appeal(db, cs2.submissionId), 'cannot appeal again after a dispute was upheld');
+await throws(() => W.resolveDispute(db, cs2.submissionId, { uphold: false }), 'cannot resolve a dispute that is already closed');
+
+console.log('\n-- appeal guards --');
+const dc3 = await W.createDare(db, { creatorId: 'dispA', title: 'Contest3', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1 });
+const cs3 = await W.submit(db, { dareId: dc3.dareId, hunterId: 'jane', vhash: 'jn1' });
+await throws(() => W.appeal(db, cs3.submissionId), 'a pending proof cannot be appealed');
+await W.reject(db, cs3.submissionId, 'blurry');
+// the appeal window is enforced from decided_at
+await db.query(`UPDATE submissions SET decided_at = now() - interval '3 days' WHERE id=$1`, [cs3.submissionId]);
+await throws(() => W.appeal(db, cs3.submissionId), 'appeal is refused after the window closes');
+await db.query(`UPDATE submissions SET decided_at = now() WHERE id=$1`, [cs3.submissionId]);
+// once the only slot is taken by someone else, there is nothing left to contest
+const other = await W.submit(db, { dareId: dc3.dareId, hunterId: 'kyle', vhash: 'ky1' });
+await W.approve(db, other.submissionId);
+await throws(() => W.appeal(db, cs3.submissionId), 'no appeal once every slot is filled');
+
+console.log('\n-- a disputed proof keeps the dare from expiring --');
+const dc4 = await W.createDare(db, { creatorId: 'dispA', title: 'Contest4', desc: 'x', rules: 'y', rewardUsdt: 10, maxWinners: 1, expiresInDays: 7 });
+const cs4 = await W.submit(db, { dareId: dc4.dareId, hunterId: 'liam', vhash: 'li1' });
+await W.reject(db, cs4.submissionId, 'nope');
+await W.appeal(db, cs4.submissionId);
+const dc4code = (await W.listDares(db)).find(d => d.id === dc4.dareId).code;
+await db.query(`UPDATE dares SET expires_at = now() - interval '1 day' WHERE id=$1`, [dc4.dareId]);
+const sw = await W.expireDares(db);
+ok(!sw.expired.some(e => e.code === dc4code), 'a dare with a live dispute is not expired');
+ok(sw.blocked.some(b => b.code === dc4code), 'it is reported as blocked');
+eq((await W.listDares(db)).find(d => d.id === dc4.dareId).status, 'open', 'contested dare stays open');
+
 console.log('\n-- invariants --');
 eq(await W.conservation(db), 0, 'everything sums to 0');
 ok((await W.reconcile(db)).length === 0, 'cached balances match journal');

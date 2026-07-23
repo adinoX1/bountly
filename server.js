@@ -336,8 +336,9 @@ function expireChallenges(){
   const now = Date.now(); const done = [];
   for (const ch of db.challenges){
     if (ch.expired || !ch.expiresAt || ch.expiresAt > now) continue;
-    // a hunter is waiting on review — refunding the creator now would be unfair
-    if (stats(ch).pending > 0) continue;
+    // someone is waiting on us — a proof under review OR an open dispute —
+    // so refunding the creator out from under them now would be unfair
+    if (stats(ch).pending > 0 || db.submissions.some(s => s.chId === ch.id && s.status === "disputed")) continue;
     const refund = Math.max(0, ch.reward * (ch.maxWinners - winnersOf(ch).length));
     const creator = Object.values(db.users).find(x => x.username === ch.creator);
     if (creator && refund > 0){ creator.credits += refund; tx("refund", "escrow", ch.creator, refund, ch.code + " expired"); }
@@ -392,21 +393,31 @@ function parseMultipart(buf, contentType){
 // Previously these two paths each had their own near-identical copy.
 // Each returns { code, body } so the caller just forwards it.
 // ============================================================
-function actApprove(id){
-  const sub = db.submissions.find(s => s.id === Number(id));
-  if (!sub || sub.status !== "pending") return { code: 404, body: { error: "not found" } };
+// How long after a rejection a hunter may appeal (mirrors ledger APPEAL_WINDOW_MS).
+const APPEAL_WINDOW_MS = Number(process.env.APPEAL_WINDOW_HOURS ?? 48) * 3600e3;
+
+// Mark a submission approved and pay it IF it is among the fastest valid proofs.
+// Shared by a normal approval and by overturning a dispute, so both settle money
+// the same way. Returns whether this proof actually won a slot.
+function approveAndPay(sub){
   const ch = db.challenges.find(c => c.id === sub.chId);
-  sub.status = "approved";
+  sub.status = "approved"; sub.decidedAt = Date.now();
   const won = winnersOf(ch).some(w => w.id === sub.id);
   if (won){
     const payout = Math.round(ch.reward * (1 - PLAYER_FEE)), fee = ch.reward - payout;
     const w = Object.values(db.users).find(x => x.username === sub.player); if (w){ w.credits += payout; w.wins += 1; }
     tx("payout", "escrow", sub.player, payout, ch.code);
     tx("commission", "escrow", "platform", fee, ch.code + " 10%");
-    notify(sub.userId, `🏆 Your proof for ${ch.code} was approved — you won ${payout} cr! 🎉\n"${ch.title}"`);
-  } else {
-    notify(sub.userId, `✅ Your proof for ${ch.code} was approved, but the slot was already taken by a faster hunter. Keep going!`);
   }
+  return { ch, won };
+}
+function actApprove(id){
+  const sub = db.submissions.find(s => s.id === Number(id));
+  if (!sub || sub.status !== "pending") return { code: 404, body: { error: "not found" } };
+  const { ch, won } = approveAndPay(sub);
+  notify(sub.userId, won
+    ? `🏆 Your proof for ${ch.code} was approved — you won ${Math.round(ch.reward * (1 - PLAYER_FEE))} cr! 🎉\n"${ch.title}"`
+    : `✅ Your proof for ${ch.code} was approved, but the slot was already taken by a faster hunter. Keep going!`);
   save();
   return { code: 200, body: { ok: true, winner: won } };
 }
@@ -416,9 +427,61 @@ function actReject(id, reasonRaw){
   const reason = String(reasonRaw || "").slice(0, 200);
   if (!reason) return { code: 400, body: { error: "reason required" } };
   const ch = db.challenges.find(c => c.id === sub.chId);
-  sub.status = "rejected"; sub.reason = reason; save();
-  notify(sub.userId, `❌ Your proof for ${ch ? ch.code : "a dare"} was rejected.\nReason: ${reason}\nYou can try again on this dare.`);
+  sub.status = "rejected"; sub.reason = reason; sub.decidedAt = Date.now(); save();
+  notify(sub.userId, `❌ Your proof for ${ch ? ch.code : "a dare"} was rejected.\nReason: ${reason}\nYou can record a fresh proof, or appeal this once from your profile.`);
   return { code: 200, body: { ok: true } };
+}
+// ---- dispute / appeal (JSON mode; mirrors ledger.js appeal/resolveDispute) ----
+function subCanAppeal(sub){
+  if (!sub || sub.status !== "rejected" || sub.appealed) return false;
+  if (sub.decidedAt && Date.now() - sub.decidedAt > APPEAL_WINDOW_MS) return false;
+  const ch = db.challenges.find(c => c.id === sub.chId);
+  if (!ch || ch.expired || stats(ch).full) return false;
+  return true;
+}
+function actAppeal(id, requester){
+  const sub = db.submissions.find(s => s.id === Number(id));
+  if (!sub) return { code: 404, body: { error: "not found" } };
+  if (sub.player !== requester.username) return { code: 403, body: { error: "not your proof" } };
+  if (sub.status !== "rejected") return { code: 400, body: { error: "only a rejected proof can be appealed" } };
+  if (sub.appealed) return { code: 400, body: { error: "you have already appealed this proof once" } };
+  if (sub.decidedAt && Date.now() - sub.decidedAt > APPEAL_WINDOW_MS) return { code: 400, body: { error: "the appeal window has closed" } };
+  const ch = db.challenges.find(c => c.id === sub.chId);
+  if (!ch || ch.expired) return { code: 400, body: { error: "this dare is already closed" } };
+  if (stats(ch).full) return { code: 400, body: { error: "all winner slots are already filled" } };
+  if (db.submissions.some(s => s.chId === ch.id && s.player === sub.player && s.id !== sub.id &&
+      (s.status === "pending" || s.status === "disputed" || s.status === "approved")))
+    return { code: 400, body: { error: "you already have another live proof on this dare" } };
+  sub.status = "disputed"; sub.appealed = true; sub.appealedAt = Date.now(); save();
+  // let the review team know a decision is being contested
+  Object.values(db.users).filter(u => u.isAdmin).forEach(a =>
+    notify(a.id, `⚖️ @${sub.player} appealed a rejected proof on ${ch.code} — "${ch.title}". It needs a second look.`));
+  return { code: 200, body: { ok: true } };
+}
+function actResolveDispute(id, uphold, reasonRaw){
+  const sub = db.submissions.find(s => s.id === Number(id));
+  if (!sub || sub.status !== "disputed") return { code: 404, body: { error: "not found" } };
+  const ch = db.challenges.find(c => c.id === sub.chId);
+  if (uphold){
+    sub.status = "rejected"; sub.decidedAt = Date.now();
+    if (reasonRaw) sub.reason = String(reasonRaw).slice(0, 200);
+    save();
+    notify(sub.userId, `⚖️ Your appeal on ${ch ? ch.code : "a dare"} was reviewed — the rejection stands. This decision is final.`);
+    return { code: 200, body: { ok: true, upheld: true } };
+  }
+  const { won } = approveAndPay(sub); save();
+  notify(sub.userId, won
+    ? `🏆 Your appeal on ${ch.code} was upheld — approved and the bounty paid out! 🎉`
+    : `✅ Your appeal on ${ch.code} was upheld and approved, but the slot was already taken by a faster hunter.`);
+  return { code: 200, body: { ok: true, upheld: false, winner: won } };
+}
+function buildDisputes(){
+  return db.submissions.filter(s => s.status === "disputed")
+    .sort((a, b) => (a.appealedAt || a.at) - (b.appealedAt || b.at)).map(s => {
+      const ch = db.challenges.find(c => c.id === s.chId);
+      return { id: s.id, code: ch && ch.code, title: ch && ch.title, player: s.player,
+        file: s.file, video: s.video, reason: s.reason || "", at: s.at, appealedAt: s.appealedAt || null };
+    });
 }
 function actBan(key){
   const tu = db.users[decodeURIComponent(key)];
@@ -606,12 +669,14 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/dash/challenges") return json(res, 200, { challenges: buildChallenges() });
       if (p === "/api/dash/txns")       return json(res, 200, { txns: [...db.txns].sort((a, b) => b.at - a.at).slice(0, 300) });
       if (p === "/api/dash/queue")      return json(res, 200, { queue: buildQueue() });
+      if (p === "/api/dash/disputes")   return json(res, 200, { disputes: buildDisputes() });
 
       let dm;
       if ((dm = p.match(/^\/api\/dash\/ban\/(.+)$/))               && req.method === "POST"){ const r = actBan(dm[1]); return json(res, r.code, r.body); }
       if ((dm = p.match(/^\/api\/dash\/credits\/(.+)$/))           && req.method === "POST"){ const r = actSetCredits(dm[1], body.credits, "dashboard set credits"); return json(res, r.code, r.body); }
       if ((dm = p.match(/^\/api\/dash\/approve\/(\d+)$/))          && req.method === "POST"){ const r = actApprove(dm[1]); return json(res, r.code, r.body); }
       if ((dm = p.match(/^\/api\/dash\/reject\/(\d+)$/))           && req.method === "POST"){ const r = actReject(dm[1], body.reason); return json(res, r.code, r.body); }
+      if ((dm = p.match(/^\/api\/dash\/dispute\/(\d+)\/resolve$/)) && req.method === "POST"){ const r = actResolveDispute(dm[1], !!body.uphold, body.reason); return json(res, r.code, r.body); }
       if ((dm = p.match(/^\/api\/dash\/challenge\/(\d+)\/delete$/)) && req.method === "POST"){ const r = actDeleteChallenge(dm[1]); return json(res, r.code, r.body); }
       return json(res, 404, { error: "unknown dashboard endpoint" });
     }
@@ -636,10 +701,18 @@ const server = http.createServer(async (req, res) => {
       const mySubs = db.submissions.filter(s => s.userId === u.id).sort((a, b) => b.at - a.at).map(s => {
         const ch = db.challenges.find(c => c.id === s.chId);
         const won = ch && winnersOf(ch).some(w => w.id === s.id);
-        return { id: s.id, code: ch && ch.code, title: ch && ch.title, file: s.file, video: s.video, hasVideo: !!s.video, status: s.status, reason: s.reason, at: s.at, won: !!won };
+        return { id: s.id, code: ch && ch.code, title: ch && ch.title, file: s.file, video: s.video, hasVideo: !!s.video,
+          status: s.status, reason: s.reason, at: s.at, won: !!won, canAppeal: subCanAppeal(s) };
       });
       const myTx = db.txns.filter(t => t.from === u.username || t.to === u.username).sort((a, b) => b.at - a.at).slice(0, 30);
       return json(res, 200, { challenges: myCh, submissions: mySubs, txns: myTx });
+    }
+
+    // appeal a rejected proof (hunter must own it)
+    let ap = p.match(/^\/api\/submissions\/(\d+)\/appeal$/);
+    if (ap && req.method === "POST"){
+      if (u.banned) return json(res, 403, { error: "banned" });
+      const r = actAppeal(ap[1], u); return json(res, r.code, r.body);
     }
 
     if (p === "/api/challenges" && req.method === "GET")
@@ -741,11 +814,17 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/admin/queue"){ if (!requireAdmin()) return;
       return json(res, 200, { queue: buildQueue() }); }
 
+    if (p === "/api/admin/disputes"){ if (!requireAdmin()) return;
+      return json(res, 200, { disputes: buildDisputes() }); }
+
     m = p.match(/^\/api\/admin\/approve\/(\d+)$/);
     if (m && req.method === "POST"){ if (!requireAdmin()) return; const r = actApprove(m[1]); return json(res, r.code, r.body); }
 
     m = p.match(/^\/api\/admin\/reject\/(\d+)$/);
     if (m && req.method === "POST"){ if (!requireAdmin()) return; const r = actReject(m[1], body.reason); return json(res, r.code, r.body); }
+
+    m = p.match(/^\/api\/admin\/dispute\/(\d+)\/resolve$/);
+    if (m && req.method === "POST"){ if (!requireAdmin()) return; const r = actResolveDispute(m[1], !!body.uphold, body.reason); return json(res, r.code, r.body); }
 
     if (p === "/api/admin/users"){ if (!requireAdmin()) return; return json(res, 200, { users: buildUsers() }); }
 
