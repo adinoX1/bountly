@@ -98,9 +98,11 @@ export async function migrateAppState(db, st) {
       if (!dareId) continue; // orphan submission, skip
       const hunterId = String(s.userId || idByName[s.player] || s.player);
       await db.query(
+        // the WHERE clause must mirror uniq_live_submission's predicate, otherwise
+        // Postgres can't infer which (partial) index this ON CONFLICT targets
         `INSERT INTO submissions(dare_id, hunter_id, vhash, status, reason, created_at)
            VALUES($1,$2,$3,$4,$5, to_timestamp($6::double precision/1000))
-           ON CONFLICT (dare_id, hunter_id) DO NOTHING`,
+           ON CONFLICT (dare_id, hunter_id) WHERE status <> 'rejected' DO NOTHING`,
         [dareId, hunterId, s.vhash || null, s.status || 'pending',
          s.reason || null, Number(s.at) || Date.now()]);
       subCount++;

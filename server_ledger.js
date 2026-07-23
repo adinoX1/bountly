@@ -111,7 +111,16 @@ export async function ledgerApi(ctx) {
     try {
       const r = await tx(ctx, c => wallet.submit(c, { dareId, hunterId: uname, vhash, file: fileLabel, video: videoName }));
       json(res, 200, { ok: true, submissionId: r.submissionId, hasVideo: !!videoName });
-    } catch (e) { json(res, 400, { error: e.message }); }
+      // tell the creator someone is going for their bounty (same as the JSON path)
+      const d = (await pool.query(`SELECT code, title, creator_id FROM dares WHERE id=$1`, [dareId])).rows[0];
+      const creator = d && ctx.db && Object.values(ctx.db.users).find(x => x.username === d.creator_id);
+      if (creator && creator.id !== user.id && ctx.notify)
+        ctx.notify(creator.id, `🎬 New proof on your dare ${d.code} — "${d.title}"\nfrom @${uname}. Someone's going for your bounty!`);
+    } catch (e) {
+      // the guard rejected us — don't leave the uploaded file orphaned on disk
+      if (videoName) { try { ctx.fs.unlinkSync(ctx.pathMod.join(ctx.UP_DIR, videoName)); } catch (_) {} }
+      json(res, 400, { error: e.message });
+    }
     return true;
   }
 
@@ -141,19 +150,35 @@ export async function ledgerApi(ctx) {
     const b = ctx.body || {};
     const amt = Number(b.usdt); if (!(amt > 0)) { json(res, 400, { error: 'bad amount' }); return true; }
     const who = b.username || uname;
-    await tx(ctx, c => wallet.deposit(c, who, amt, b.txhash || null));
-    json(res, 200, { ok: true, balance: await wallet.balance(pool, who) });
+    try {
+      await tx(ctx, c => wallet.deposit(c, who, amt, b.txhash || null));
+      json(res, 200, { ok: true, balance: await wallet.balance(pool, who) });
+    } catch (e) {
+      const dup = /duplicate key|unique|uniq_deposit_ref/i.test(e.message);
+      json(res, 400, { error: dup ? 'this txhash was already credited' : e.message });
+    }
     return true;
   }
 
-  // ----- withdraw (records the ledger side AFTER the on-chain send succeeds) -----
+  // ----- withdraw: BOOKKEEPING ONLY -----
+  // This debits the ledger to match an on-chain send that has ALREADY happened.
+  // Nothing here moves real funds (ton.sendUsdt is not wired up yet), so it is
+  // admin-only and demands the tx hash as proof — otherwise a user could zero
+  // their own balance and never receive anything.
   if (p === '/api/wallet/withdraw' && method === 'POST') {
+    if (!user.isAdmin) { json(res, 403, { error: 'admin only — user-initiated withdrawals are not live yet' }); return true; }
     const b = ctx.body || {};
     const amt = Number(b.usdt); if (!(amt > 0)) { json(res, 400, { error: 'bad amount' }); return true; }
+    const txhash = String(b.txhash || '').trim();
+    if (!txhash) { json(res, 400, { error: 'txhash required — record only a send that already settled on-chain' }); return true; }
+    const who = String(b.username || uname).trim();
     try {
-      await tx(ctx, c => wallet.withdraw(c, uname, amt, b.txhash || null));
-      json(res, 200, { ok: true, balance: await wallet.balance(pool, uname) });
-    } catch (e) { json(res, 400, { error: e.message }); }
+      await tx(ctx, c => wallet.withdraw(c, who, amt, txhash));
+      json(res, 200, { ok: true, balance: await wallet.balance(pool, who) });
+    } catch (e) {
+      const dup = /duplicate key|unique|uniq_withdraw_ref/i.test(e.message);
+      json(res, 400, { error: dup ? 'this txhash was already recorded' : e.message });
+    }
     return true;
   }
 
@@ -184,6 +209,15 @@ export async function ledgerApi(ctx) {
   if (m && method === 'POST') {
     if (admin && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
     try { const r = await tx(ctx, c => wallet.refund(c, Number(m[1]))); json(res, 200, { ok: true, refunded: r.refunded / wallet.MICRO }); }
+    catch (e) { json(res, 400, { error: e.message }); }
+    return true;
+  }
+  // Without this the edit fell through to server.js and wrote to the JSON blob,
+  // which LEDGER mode never reads back — the change silently vanished.
+  m = p.match(/^\/api\/(?:admin|dash)\/challenge\/(\d+)\/edit$/);
+  if (m && method === 'POST') {
+    if (admin && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
+    try { await wallet.editDare(pool, Number(m[1]), ctx.body || {}); json(res, 200, { ok: true }); }
     catch (e) { json(res, 400, { error: e.message }); }
     return true;
   }
@@ -238,7 +272,7 @@ export async function ledgerApi(ctx) {
         FROM ledger_tx t WHERE t.type='deposit' ORDER BY t.id DESC LIMIT 300`);
       return r.rows.map(x => ({ id: Number(x.id), at: Number(x.at),
         username: x.username || '', amount: Number(x.amount) / wallet.MICRO,
-        ref: x.ref || '', source: (x.ref === 'admin-set' ? 'admin' : 'on-chain') }));
+        ref: x.ref || '', source: (String(x.ref || '').startsWith('admin-set') ? 'admin' : 'on-chain') }));
     }
 
     async function overview() {
@@ -297,8 +331,14 @@ export async function ledgerApi(ctx) {
       if (!Number.isFinite(target)) { json(res, 400, { error: 'bad value' }); return true; }
       const cur = await wallet.balance(pool, tu.username);
       const delta = target - cur;
-      if (delta > 0) await tx(ctx, c => wallet.deposit(c, tu.username, delta, 'admin-set'));
-      else if (delta < 0) await tx(ctx, c => wallet.withdraw(c, tu.username, -delta, 'admin-set'));
+      // ref must be unique per call: uniq_deposit_ref / uniq_withdraw_ref are
+      // partial unique indexes on ledger_tx(ref), so a constant 'admin-set'
+      // would let this succeed exactly once for the whole database.
+      const ref = 'admin-set:' + ctx.crypto.randomUUID();
+      try {
+        if (delta > 0) await tx(ctx, c => wallet.deposit(c, tu.username, delta, ref));
+        else if (delta < 0) await tx(ctx, c => wallet.withdraw(c, tu.username, -delta, ref));
+      } catch (e) { json(res, 400, { error: e.message }); return true; }
       json(res, 200, { ok: true, credits: target }); return true;
     }
   }

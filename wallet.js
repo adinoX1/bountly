@@ -25,7 +25,14 @@ ALTER TABLE dares       ADD COLUMN IF NOT EXISTS descr TEXT NOT NULL DEFAULT '';
 ALTER TABLE dares       ADD COLUMN IF NOT EXISTS rules TEXT NOT NULL DEFAULT '';
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file  TEXT;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS video TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_deposit_ref ON ledger_tx(ref) WHERE type='deposit' AND ref IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_deposit_ref  ON ledger_tx(ref) WHERE type='deposit'  AND ref IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_withdraw_ref ON ledger_tx(ref) WHERE type='withdraw' AND ref IS NOT NULL;
+-- A rejected proof must not block a retry. The original table-level
+-- UNIQUE(dare_id, hunter_id) blocked it forever, contradicting the
+-- "you can try again on this dare" message we send on rejection.
+ALTER TABLE submissions DROP CONSTRAINT IF EXISTS submissions_dare_id_hunter_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_live_submission
+  ON submissions(dare_id, hunter_id) WHERE status <> 'rejected';
 `;
 
 export const MICRO = L.MICRO;
@@ -79,16 +86,45 @@ export async function createDare(db, { creatorId, title, desc, rules, rewardUsdt
   });
 }
 
+// All the guards run inside the same transaction that locks the dare row,
+// so two proofs racing for the last slot can't both get in.
 export async function submit(db, { dareId, hunterId, vhash = null, file = null, video = null }) {
+  const hunter = String(hunterId);
   return L.withTx(db, async () => {
-    const dr = await db.query(`SELECT status FROM dares WHERE id=$1 FOR UPDATE`, [dareId]);
+    const dr = await db.query(
+      `SELECT status, creator_id, max_winners FROM dares WHERE id=$1 FOR UPDATE`, [dareId]);
     if (!dr.rows.length) throw new Error('dare not found');
-    if (dr.rows[0].status !== 'open') throw new Error('dare not open');
+    const dare = dr.rows[0];
+    if (dare.status !== 'open') throw new Error('dare not open');
+    if (dare.creator_id === hunter) throw new Error("you can't complete your own dare");
+
+    const won = await db.query(
+      `SELECT count(*)::int AS n FROM submissions WHERE dare_id=$1 AND status='approved'`, [dareId]);
+    if (won.rows[0].n >= dare.max_winners) throw new Error('slots full');
+
+    const mine = await db.query(
+      `SELECT 1 FROM submissions WHERE dare_id=$1 AND hunter_id=$2 AND status<>'rejected' LIMIT 1`,
+      [dareId, hunter]);
+    if (mine.rows.length) throw new Error('you already submitted to this dare');
+
     const s = await db.query(
       `INSERT INTO submissions(dare_id, hunter_id, vhash, file, video) VALUES($1,$2,$3,$4,$5) RETURNING id`,
-      [dareId, String(hunterId), vhash, file, video]);
+      [dareId, hunter, vhash, file, video]);
     return { submissionId: Number(s.rows[0].id) };
   });
+}
+
+// Text-only edit. Money fields (reward, max_winners) are deliberately NOT
+// editable — they back an escrow balance that is already locked.
+export async function editDare(db, dareId, { title, desc, rules }) {
+  const sets = [], vals = [];
+  if (title != null) { sets.push(`title=$${sets.length + 2}`); vals.push(String(title).slice(0, 120)); }
+  if (desc  != null) { sets.push(`descr=$${sets.length + 2}`); vals.push(String(desc).slice(0, 500)); }
+  if (rules != null) { sets.push(`rules=$${sets.length + 2}`); vals.push(String(rules).slice(0, 400)); }
+  if (!sets.length) return { ok: true };
+  const r = await db.query(`UPDATE dares SET ${sets.join(', ')} WHERE id=$1 RETURNING id`, [dareId, ...vals]);
+  if (!r.rows.length) throw new Error('dare not found');
+  return { ok: true };
 }
 
 export const approve  = (db, submissionId) => L.approveSubmission(db, submissionId);

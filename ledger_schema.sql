@@ -71,10 +71,12 @@ CREATE TABLE IF NOT EXISTS submissions (
   vhash       TEXT,                                       -- sha256 of the video (anti-replay)
   status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
   reason      TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- a hunter can only have one live (non-rejected) submission per dare
-  UNIQUE (dare_id, hunter_id)
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- a hunter can only have one LIVE (non-rejected) submission per dare.
+-- Partial on purpose: after a rejection they must be able to try again.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_live_submission
+  ON submissions(dare_id, hunter_id) WHERE status <> 'rejected';
 -- the same exact clip can never be reused while it counts
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_live_vhash
   ON submissions(vhash) WHERE status <> 'rejected' AND vhash IS NOT NULL;

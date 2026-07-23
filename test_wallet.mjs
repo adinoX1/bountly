@@ -51,6 +51,39 @@ await W.approve(db, s4.submissionId);
 const r = await W.refund(db, d2.dareId);
 eq(r.refunded, W.MICRO * 20, 'refunded 20 USDT (2 unpaid slots)');
 
+console.log('\n-- submit guards --');
+const dsg = await W.createDare(db, { creatorId: 'creator', title: 'Guards', desc: 'x', rules: 'y', rewardUsdt: 5, maxWinners: 1 });
+await throws(() => W.submit(db, { dareId: dsg.dareId, hunterId: 'creator', vhash: 'own' }), "creator can't complete their own dare");
+await W.submit(db, { dareId: dsg.dareId, hunterId: 'hank', vhash: 'h1' });
+await throws(() => W.submit(db, { dareId: dsg.dareId, hunterId: 'hank', vhash: 'h2' }), 'second live submission by the same hunter is rejected');
+await throws(() => W.submit(db, { dareId: 999999, hunterId: 'hank', vhash: 'h3' }), 'submitting to a missing dare is rejected');
+
+console.log('\n-- a rejected hunter can try again (uniq_live_submission is partial) --');
+const dr2 = await W.createDare(db, { creatorId: 'creator', title: 'Retry', desc: 'x', rules: 'y', rewardUsdt: 5, maxWinners: 1 });
+const r1 = await W.submit(db, { dareId: dr2.dareId, hunterId: 'rita', vhash: 'r1' });
+await W.reject(db, r1.submissionId, 'too dark');
+const r2 = await W.submit(db, { dareId: dr2.dareId, hunterId: 'rita', vhash: 'r2' });
+ok(r2.submissionId > 0, 'rita re-submits after a rejection');
+await W.approve(db, r2.submissionId);
+eq(await W.balance(db, 'rita'), 4.5, 'rita paid 4.5 on the retry');
+
+console.log('\n-- slots full blocks new proofs --');
+await throws(() => W.submit(db, { dareId: dr2.dareId, hunterId: 'rob', vhash: 'r3' }), 'submitting to a filled dare is rejected');
+
+console.log('\n-- editDare: text only --');
+await W.editDare(db, dsg.dareId, { title: 'Renamed', rules: 'New rules' });
+const edited = (await W.listDares(db)).find(d => d.id === dsg.dareId);
+eq(edited.title, 'Renamed', 'title updated');
+eq(edited.rules, 'New rules', 'rules updated');
+eq(edited.reward, 5, 'reward untouched by an edit');
+await throws(() => W.editDare(db, 999999, { title: 'x' }), 'editing a missing dare is rejected');
+
+console.log('\n-- deposit refs stay unique (admin-set bug) --');
+await throws(() => W.deposit(db, 'creator', 5, 'tx1'), 'reusing a deposit txhash is rejected');
+await W.deposit(db, 'creator', 5, 'admin-set:' + crypto.randomUUID());
+await W.deposit(db, 'creator', 5, 'admin-set:' + crypto.randomUUID());
+ok(true, 'two admin-set adjustments both land (unique refs)');
+
 console.log('\n-- invariants --');
 eq(await W.conservation(db), 0, 'everything sums to 0');
 ok((await W.reconcile(db)).length === 0, 'cached balances match journal');
