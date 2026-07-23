@@ -2,7 +2,16 @@ node_modules
 npm-debug.log
 .git
 .gitignore
+.github
 *.md
 uploads
 _app.js
 _vderive.mjs
+
+# never bake state or secrets into an image
+data.json
+.env
+.env.local
+
+# tests and their only dependency (pglite) are dev-only
+test_*.mjs

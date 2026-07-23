@@ -1,17 +1,19 @@
 // ============================================================
-// BOUNTLY — Telegram Mini App backend (v2.1, hardened)
-// Credits-based dare/bounty platform. Run: node server.js (Node 18+)
+// BOUNTLY — Telegram Mini App backend. Run: node server.js (Node 18+)
 //
-// What changed vs v2 (see IMPROVEMENTS.md for the full list):
-//  • SECURITY: static file server no longer leaks data.json / server.js / .env
-//  • SECURITY: CORS is now opt-in via ALLOW_ORIGIN instead of a blanket "*"
-//  • SECURITY: dashboard login is rate-limited + uses a timing-safe compare
-//  • SECURITY: uploaded videos get an unguessable random filename
-//  • SECURITY: dev auth bypass refuses to run when NODE_ENV=production
-//  • SECURITY: basic hardening headers on every response
-//  • QUALITY: admin (Telegram) and dashboard (password) now share one set of
-//    action helpers instead of two near-identical copies
-//  • QUALITY: removed dead code (`server.listen;`) and centralised config
+// This file is the HTTP layer: routing, Telegram auth, static serving, and the
+// legacy JSON-blob store used when DATABASE_URL is unset. With LEDGER=1 the
+// money and dare routes are delegated to server_ledger.js instead, which is
+// backed by the double-entry ledger in ledger.js / wallet.js.
+//
+// Design notes worth knowing before editing:
+//  • the static server is a strict WHITELIST — anything not listed is a 404,
+//    which is what keeps the JSON store, .env and this file unreachable
+//  • without a BOT_TOKEN the server runs in DEV mode with auth bypassed; that
+//    is refused outright when NODE_ENV=production
+//  • framing is controlled per-page by CSP frame-ancestors, NOT by
+//    X-Frame-Options — Telegram Web has to be able to iframe the mini app
+//  • see README.md for the operational limits (ephemeral uploads, one instance)
 // ============================================================
 import http from "http";
 import crypto from "crypto";
@@ -34,7 +36,7 @@ const PLAYER_FEE     = 0.10, CREATOR_FEE = 0.05;
 const START_CREDITS  = 100;
 const MAX_VIDEO      = 50 * 1024 * 1024;            // 50 MB cap
 const APP_LINK       = process.env.APP_LINK || "";  // e.g. https://t.me/getbountlybot/arena
-const PUBLIC_URL     = process.env.PUBLIC_URL || "https://jakubsas.life"; // for the Telegram webhook
+const PUBLIC_URL     = (process.env.PUBLIC_URL || "").replace(/\/+$/, ""); // for the Telegram webhook
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const ALLOW_ORIGIN   = process.env.ALLOW_ORIGIN || "";       // set to enable cross-origin API access
 const IS_PROD        = process.env.NODE_ENV === "production";
@@ -135,7 +137,9 @@ async function notify(userId, text){
 
 // ---- Telegram bot commands (webhook-driven) ----
 const TG_SECRET = BOT_TOKEN ? crypto.createHash("sha256").update("bountly-wh:" + BOT_TOKEN).digest("hex").slice(0, 40) : "";
-const TG_OPEN_BTN = { inline_keyboard: [[{ text: "⚡ Open Bountly", url: APP_LINK || (PUBLIC_URL + "/app") }]] };
+// null when neither is configured — Telegram rejects a button with a relative URL
+const TG_OPEN_URL = APP_LINK || (PUBLIC_URL ? PUBLIC_URL + "/app" : "");
+const TG_OPEN_BTN = TG_OPEN_URL ? { inline_keyboard: [[{ text: "⚡ Open Bountly", url: TG_OPEN_URL }]] } : null;
 const TG_WELCOME = "Welcome to Bountly ⚡\n\nFilm the dare. Prove it. Win the bounty.\nPost a challenge, set a bounty — first valid proof takes the cash.\n\nTap below to enter the arena.";
 const TG_HOW = "How Bountly works\n\n1. Post a dare & set a bounty 💰\n2. Hunters film their proof and submit it 🎬\n3. First valid proof wins the bounty 🏆\n\nChallenge yourself — tap below to start.";
 async function tgReply(chatId, text){
@@ -143,12 +147,20 @@ async function tgReply(chatId, text){
   try {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, reply_markup: TG_OPEN_BTN })
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true,
+        ...(TG_OPEN_BTN ? { reply_markup: TG_OPEN_BTN } : {}) })
     });
   } catch (e){ console.error("tgReply:", e.message); }
 }
 async function registerTelegram(){
   if (!BOT_TOKEN) return;
+  // This used to fall back to a hardcoded personal domain, so anyone deploying
+  // a fork with a bot token silently pointed their webhook at someone else's
+  // host. Refuse to guess: no PUBLIC_URL, no webhook.
+  if (!PUBLIC_URL){
+    console.warn("⚠️  PUBLIC_URL not set — skipping Telegram webhook registration. Bot commands (/start) will not work.");
+    return;
+  }
   const base = `https://api.telegram.org/bot${BOT_TOKEN}`;
   try {
     await fetch(`${base}/setWebhook`, { method: "POST", headers: { "Content-Type": "application/json" },

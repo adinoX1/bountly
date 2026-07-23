@@ -3,9 +3,11 @@
 FROM node:18-slim
 WORKDIR /app
 
-# Install deps first for layer caching. No package-lock committed → npm install.
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+# Install deps first for layer caching. `npm ci` needs the lockfile and gives a
+# reproducible tree — `npm install` without one silently re-resolved every
+# dependency on each build.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --omit=optional --no-audit --no-fund
 
 # App source
 COPY . .

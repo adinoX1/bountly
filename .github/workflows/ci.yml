@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # optional deps (@ton/*, @solana/*) are lazy-imported and not needed by
+      # the tests; skipping them keeps CI fast and green without network extras
+      - run: npm ci --omit=optional
+
+      - name: Syntax check
+        run: npm run check
+
+      - run: npm test

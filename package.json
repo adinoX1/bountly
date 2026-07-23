@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js",
+    "check": "node --check server.js && node --check server_ledger.js && node --check wallet.js && node --check ledger.js && node --check solana.js && node --check ton.js && node --check migrate_to_ledger.mjs",
     "test:ledger": "node test_ledger.mjs",
     "test:migrate": "node test_migrate.mjs",
     "test:wallet": "node test_wallet.mjs",
