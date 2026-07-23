@@ -21,6 +21,10 @@ dashboard) reviews each proof and pays out the bounty.
   rejected you can record a new one and try again.
 - **Review** — admins approve/reject from inside the app or the web dashboard.
   On approval the fastest valid hunters win; payout is the reward minus a 10% player fee.
+- **Appeal** — a rejected hunter can contest the decision once, within a window
+  (`APPEAL_WINDOW_HOURS`, default 48). The proof enters a `disputed` state that
+  holds the contested slot; a second reviewer either overturns it (pays out) or
+  upholds the rejection (final).
 - **Leaderboard, profiles, transaction ledger** are all derived from the same state.
 
 ---
@@ -60,6 +64,7 @@ documented list. The important ones:
 | `DATABASE_URL`   | for persistence | Postgres connection string. Falls back to a JSON file if unset.|
 | `NODE_ENV`       | prod            | Set to `production` for strict, secure mode.                   |
 | `DARE_TTL_DAYS`  | optional        | Default dare deadline in days (default 14, `0` = none).        |
+| `APPEAL_WINDOW_HOURS` | optional   | Window to appeal a rejection (default 48).                     |
 | `ALLOW_ORIGIN`   | optional        | Enable cross-origin API access from one origin (default: off). |
 
 Opt-in subsystems — **`LEDGER=1`** (double-entry money), **`SOLANA=1`** and the
