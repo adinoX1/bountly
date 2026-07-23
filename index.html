@@ -183,6 +183,7 @@ video.preview{width:100%;border-radius:12px;margin-top:14px;border:1px solid var
 .st.pending{color:#ff9f45;background:rgba(255,159,69,.12)}
 .st.approved{color:var(--lime);background:rgba(244,33,46,.12)}
 .st.rejected{color:var(--red);background:rgba(244,33,46,.12)}
+.st.disputed{color:#4aa8ff;background:rgba(74,168,255,.12)}
 .st.won{color:#000;background:var(--lime)}
 .sub-row .info{flex:1;min-width:0}
 .sub-row .info .t{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -799,14 +800,16 @@ async function loadProfile(){
       <div class="cell"><div class="v">${a.challenges.length}</div><div class="k">Posted dares</div></div>`;
     $('#p-subs').innerHTML=a.submissions.length?a.submissions.map(s=>{
       const st=s.won?'won':s.status;
-      const lab=s.won?'WON':s.status;
+      const lab=s.won?'WON':(s.status==='disputed'?'under review':s.status);
       return `<div class="sub-row"><span class="st ${st}">${lab}</span>
         <div class="info"><div class="t">${esc(s.title||s.code)}</div><div class="m">${esc(s.code)} · ${esc(s.file)}${s.reason?' · '+esc(s.reason):''}</div></div>
         <div style="display:flex;gap:8px;flex-shrink:0">
+        ${s.canAppeal?`<button class="btn btn-out btn-sm" data-appeal="${s.id}">Appeal</button>`:''}
         ${s.won?`<button class="btn btn-lime btn-sm" data-sharewin="${esc(s.code)}">𝕏 Share</button>`:''}
         ${s.video?`<button class="btn btn-out btn-sm" onclick="window.open('/uploads/${encodeURIComponent(s.video)}','_blank')">video</button>`:''}</div></div>`;
     }).join(''):'<div style="color:var(--muted)">No submissions yet. Take a dare!</div>';
     $('#p-subs').querySelectorAll('[data-sharewin]').forEach(b=>b.onclick=()=>shareWin(b.dataset.sharewin));
+    $('#p-subs').querySelectorAll('[data-appeal]').forEach(b=>b.onclick=()=>appealProof(b.dataset.appeal));
     $('#p-dares').innerHTML=a.challenges.length?a.challenges.map(b=>{
       const segs=Array.from({length:b.maxWinners},(_,i)=>`<div class="seg ${i<b.slots[0]?'on':''}"></div>`).join('');
       const live=isOpen(b), lab=b.full?'filled':(live?'live':'expired');
@@ -815,6 +818,14 @@ async function loadProfile(){
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div></div>`;
     }).join(''):'<div style="color:var(--muted)">No posted dares yet.</div>';
   }catch(e){ $('#p-subs').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
+}
+// contest a rejection — a second reviewer takes another look. Only once per proof.
+async function appealProof(id){
+  if(!confirm('Appeal this rejection? A second reviewer will take another look. You can only appeal once.')) return;
+  try{ await api('/api/submissions/'+id+'/appeal',{method:'POST'});
+    toast('Appeal sent — a reviewer will take another look.'); haptic('success');
+    const ps=$('#p-subs'); if(ps) ps.dataset.sig=''; loadProfile();
+  }catch(e){ toast(e.message); haptic('error'); }
 }
 
 // ---- admin ----
@@ -863,18 +874,20 @@ async function refreshMe(){
       sec.innerHTML=`<div class="page-h"><h2>Admin panel</h2><p>Manage everything — review, users, dares and the ledger.</p></div>
         <div class="subnav" id="admin-subnav">
           <button class="active" data-sub="queue">Review</button>
+          <button data-sub="disputes">Disputes</button>
           <button data-sub="users">Users</button>
           <button data-sub="dares">Dares</button>
           <button data-sub="ledger">Ledger</button>
         </div>
         <div id="admin-queue" class="admin-panel"></div>
+        <div id="admin-disputes" class="admin-panel" style="display:none"></div>
         <div id="admin-users" class="admin-panel" style="display:none"></div>
         <div id="admin-dares" class="admin-panel" style="display:none"></div>
         <div id="admin-ledger" class="admin-panel" style="display:none"></div>`;
       document.querySelector('main').appendChild(sec);
       sec.querySelectorAll('#admin-subnav button').forEach(sb=>sb.onclick=()=>{
         sec.querySelectorAll('#admin-subnav button').forEach(x=>x.classList.toggle('active',x===sb));
-        ['queue','users','dares','ledger'].forEach(k=>$('#admin-'+k).style.display=(k===sb.dataset.sub?'block':'none'));
+        ['queue','disputes','users','dares','ledger'].forEach(k=>$('#admin-'+k).style.display=(k===sb.dataset.sub?'block':'none'));
         haptic('light'); loadAdminSub(sb.dataset.sub);
       });
     }
@@ -883,9 +896,38 @@ async function refreshMe(){
 let adminSub='queue';
 function loadAdminSub(which){ adminSub=which;
   if(which==='queue') loadQueue();
+  else if(which==='disputes') loadDisputes();
   else if(which==='users') loadUsers();
   else if(which==='dares') loadDares();
   else if(which==='ledger') loadLedger();
+}
+
+// ---- admin: disputes (appeals awaiting a second review) ----
+async function loadDisputes(){
+  try{ const {disputes}=await api('/api/admin/disputes'); const el=$('#admin-disputes');
+    const sig=JSON.stringify(disputes); if(el.dataset.sig===sig) return;
+    if(document.activeElement && document.activeElement.id && document.activeElement.id.startsWith('ds-')) return;
+    el.dataset.sig=sig;
+    el.innerHTML=disputes.length?disputes.map((s,i)=>`
+      <div class="card" style="margin-bottom:12px">
+        <div class="c-top"><span class="c-id">#${i+1} · ${esc(s.code)}</span><span class="tag" style="color:#4aa8ff;background:rgba(74,168,255,.12)">appealed</span></div>
+        <h3>${esc(s.title)}</h3><div class="creator">by @${esc(s.player)} · ${esc(s.file)}</div>
+        ${s.reason?`<div class="d-box" style="margin-top:8px"><div class="lbl">Original reject reason</div>${esc(s.reason)}</div>`:''}
+        ${s.video?`<video class="preview" controls src="/uploads/${esc(s.video)}${location.search}"></video>`:'<div style="color:var(--muted);font-size:13px;margin:8px 0">(demo submission, no video file)</div>'}
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <button class="btn btn-lime" data-ov="${s.id}">Overturn &amp; pay</button>
+          <input id="ds-${s.id}" placeholder="Note (optional)…" style="flex:1">
+          <button class="btn btn-out" data-uh="${s.id}">Uphold reject</button>
+        </div></div>`).join(''):'<div style="color:var(--muted)">No appeals to review ✓</div>';
+    el.querySelectorAll('[data-ov]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Overturn the rejection and pay this hunter?')) return;
+      try{ const r=await api('/api/admin/dispute/'+b.dataset.ov+'/resolve',{method:'POST',body:JSON.stringify({uphold:false})});
+        toast(r.winner!==false?'Overturned — bounty paid.':'Overturned.'); haptic('success'); loadDisputes(); }catch(e){toast(e.message);} });
+    el.querySelectorAll('[data-uh]').forEach(b=>b.onclick=async()=>{
+      const reason=$('#ds-'+b.dataset.uh).value.trim();
+      try{ await api('/api/admin/dispute/'+b.dataset.uh+'/resolve',{method:'POST',body:JSON.stringify({uphold:true,reason})});
+        toast('Rejection upheld.'); loadDisputes(); }catch(e){toast(e.message);} });
+  }catch(e){ $('#admin-disputes').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
 
 // ---- admin: users ----

@@ -148,6 +148,7 @@ input[type=number]{width:90px;display:inline-block}
   <div class="tabs" id="tabs">
     <button class="active" data-p="overview">Overview</button>
     <button data-p="queue">Review <span class="cnt" id="cnt-queue"></span></button>
+    <button data-p="disputes">Disputes <span class="cnt" id="cnt-disputes"></span></button>
     <button data-p="users">Users <span class="cnt" id="cnt-users"></span></button>
     <button data-p="dares">Dares <span class="cnt" id="cnt-dares"></span></button>
     <button data-p="ledger">Ledger <span class="cnt" id="cnt-ledger"></span></button> <button data-p="deposits">Deposits</button>
@@ -155,6 +156,7 @@ input[type=number]{width:90px;display:inline-block}
 
   <div class="panel active" data-panel="overview" id="p-overview"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="queue" id="p-queue"><div class="loading">Loading…</div></div>
+  <div class="panel" data-panel="disputes" id="p-disputes"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="users" id="p-users"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="dares" id="p-dares"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="ledger" id="p-ledger"><div class="loading">Loading…</div></div> <div class="panel" data-panel="deposits" id="p-deposits"><div class="loading">Loading…</div></div>
@@ -204,6 +206,7 @@ $('#tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
 function load(which){
   if(which==='overview') loadOverview();
   else if(which==='queue') loadQueue();
+  else if(which==='disputes') loadDisputes();
   else if(which==='users') loadUsers();
   else if(which==='dares') loadDares();
   else if(which==='ledger') loadLedger(); else if(which==='deposits') loadDeposits();
@@ -330,6 +333,31 @@ async function loadQueue(){
       const reason=$('#rr-'+b.dataset.rj).value.trim(); if(!reason) return alert('Enter a reject reason');
       try{ await api('/api/dash/reject/'+b.dataset.rj,{method:'POST',body:JSON.stringify({reason})}); loadQueue(); }catch(e){alert(e.message);} });
   }catch(e){ $('#p-queue').innerHTML=`<div class="loading">${esc(e.message)}</div>`; }
+}
+
+// ---- disputes: appeals a second reviewer must settle ----
+async function loadDisputes(){
+  try{ const {disputes}=await api('/api/dash/disputes');
+    const c=$('#cnt-disputes'); if(c) c.textContent=disputes.length||'';
+    const sum=`<div class="sumbar"><div class="chip"><b>${disputes.length}</b>appeals to review</div></div>`;
+    $('#p-disputes').innerHTML=sum+(disputes.length?disputes.map((s,i)=>`
+      <div class="card">
+        <div class="row"><div><b>#${i+1} · ${esc(s.code)}</b> <span class="tag" style="color:#4aa8ff">appealed</span><div class="sub">${esc(s.title)} · by @${esc(s.player)} · ${esc(s.file)}</div></div></div>
+        ${s.reason?`<div class="sub" style="margin:6px 0"><b>Original reject reason:</b> ${esc(s.reason)}</div>`:''}
+        ${s.video?`<video controls src="/uploads/${esc(s.video)}"></video>`:'<div class="sub">(no video file)</div>'}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-lime btn-sm" data-ov="${s.id}">Overturn &amp; pay</button>
+          <input id="dn-${s.id}" placeholder="note (optional)" style="flex:1;min-width:120px">
+          <button class="btn btn-out btn-sm" data-uh="${s.id}" style="border-color:var(--red);color:var(--red)">Uphold reject</button>
+        </div>
+      </div>`).join(''):'<div class="loading">No appeals to review. ✓</div>');
+    $('#p-disputes').querySelectorAll('[data-ov]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Overturn the rejection and pay this hunter?')) return;
+      try{ await api('/api/dash/dispute/'+b.dataset.ov+'/resolve',{method:'POST',body:JSON.stringify({uphold:false})}); loadDisputes(); }catch(e){alert(e.message);} });
+    $('#p-disputes').querySelectorAll('[data-uh]').forEach(b=>b.onclick=async()=>{
+      const reason=$('#dn-'+b.dataset.uh).value.trim();
+      try{ await api('/api/dash/dispute/'+b.dataset.uh+'/resolve',{method:'POST',body:JSON.stringify({uphold:true,reason})}); loadDisputes(); }catch(e){alert(e.message);} });
+  }catch(e){ $('#p-disputes').innerHTML=`<div class="loading">${esc(e.message)}</div>`; }
 }
 
 // ---- users ----
