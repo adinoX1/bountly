@@ -67,9 +67,64 @@ r = await call('POST','/api/dash/credits/2',{ user:dash, body:{ credits:50 } });
 eq(r.body.credits,50,'set credits returns 50');
 eq((await call('GET','/api/me',{ user:alice })).body.user.credits,50,'alice balance now 50 via ledger');
 
+console.log('\n-- set credits works more than once (constant admin-set ref bug) --');
+r = await call('POST','/api/dash/credits/2',{ user:dash, body:{ credits:70 } });
+eq(r.code,200,'second raise succeeds');
+eq((await call('GET','/api/me',{ user:alice })).body.user.credits,70,'alice now 70');
+r = await call('POST','/api/dash/credits/2',{ user:dash, body:{ credits:60 } });
+eq(r.code,200,'lowering credits succeeds');
+r = await call('POST','/api/dash/credits/2',{ user:dash, body:{ credits:80 } });
+eq(r.code,200,'third raise still succeeds');
+eq((await call('GET','/api/me',{ user:alice })).body.user.credits,80,'alice now 80');
+
+console.log('\n-- withdraw is admin-only and needs a txhash --');
+eq((await call('POST','/api/wallet/withdraw',{ user:bob, body:{ usdt:5 } })).code,403,'user cannot withdraw');
+eq((await call('POST','/api/wallet/withdraw',{ user:admin, body:{ usdt:5 } })).code,400,'admin still needs a txhash');
+r = await call('POST','/api/wallet/withdraw',{ user:admin, body:{ usdt:5, username:'alice', txhash:'onchain-1' } });
+eq(r.code,200,'admin records a settled send');
+eq((await call('GET','/api/me',{ user:alice })).body.user.credits,75,'alice debited to 75');
+r = await call('POST','/api/wallet/withdraw',{ user:admin, body:{ usdt:5, username:'alice', txhash:'onchain-1' } });
+eq(r.code,400,'the same txhash cannot be recorded twice');
+eq((await call('GET','/api/me',{ user:alice })).body.user.credits,75,'alice not double-debited');
+
+console.log('\n-- submit guards in LEDGER mode --');
+// alice is banned by now, so use a fresh hunter to reach the slot checks
+blob.users['4'] = { id:'4', username:'carol', name:'Carol', isAdmin:false, banned:false, joinedAt: 0 };
+const carol = blob.users['4'];
+eq((await call('POST',`/api/challenges/${dareId}/submit`,{ user:carol, body:{ file:'x.mp4' } })).code,400,'filled dare rejects new proofs');
+eq((await call('POST',`/api/challenges/${dareId}/submit`,{ user:alice, body:{ file:'x.mp4' } })).code,403,'banned hunter is refused');
+r = await call('POST','/api/challenges',{ user:admin, body:{ title:'Solo', desc:'d', rules:'r', reward:5, maxWinners:1 } });
+const solo = (await call('GET','/api/challenges',{ user:admin })).body.challenges.find(c=>c.code===r.body.code).id;
+eq((await call('POST',`/api/challenges/${solo}/submit`,{ user:admin, body:{ file:'own.mp4' } })).code,403,"creator can't submit to their own dare");
+eq((await call('POST',`/api/challenges/${solo}/submit`,{ user:bob, body:{ file:'b1.mp4' } })).code,200,'bob submits');
+eq((await call('POST',`/api/challenges/${solo}/submit`,{ user:bob, body:{ file:'b2.mp4' } })).code,400,'bob cannot double-submit');
+
+console.log('\n-- edit is handled in LEDGER mode (used to hit the dead JSON blob) --');
+r = await call('POST',`/api/admin/challenge/${solo}/edit`,{ user:admin, body:{ title:'Renamed solo' } });
+eq(r.code,200,'edit accepted');
+eq((await call('GET','/api/challenges',{ user:admin })).body.challenges.find(c=>c.id===solo).title,'Renamed solo','title actually changed in the ledger');
+eq((await call('POST',`/api/admin/challenge/${solo}/edit`,{ user:bob, body:{ title:'x' } })).code,403,'non-admin cannot edit');
+
 console.log('\n-- auth: admin analytics blocked for non-admin --');
 eq((await call('GET','/api/admin/users',{ user:bob })).code,403,'non-admin blocked from /api/admin/users');
 eq((await call('GET','/api/admin/users',{ user:admin })).code,200,'admin allowed');
+
+console.log('\n-- health endpoint --');
+r = await call('GET','/api/admin/health',{ user:admin });
+eq(r.code,200,'health is 200 while the books balance');
+eq(r.body.health.ok,true,'health ok');
+eq(r.body.health.conservation,0,'conservation 0');
+eq(r.body.health.drift.length,0,'no drift between cache and journal');
+eq(r.body.health.escrowMatches,true,'escrow account equals the sum of dares.escrow_locked');
+eq((await call('GET','/api/admin/health',{ user:bob })).code,403,'non-admin blocked from health');
+
+console.log('\n-- health catches a tampered balance --');
+await pool.query(`UPDATE accounts SET balance = balance + 1000 WHERE kind='user' AND owner_id='bob'`);
+r = await call('GET','/api/admin/health',{ user:admin });
+eq(r.code,500,'health reports 500 after a manual balance edit');
+eq(r.body.health.ok,false,'health not ok');
+ok(r.body.health.drift.some(d=>d.owner==='bob'),'drift names the tampered account');
+await pool.query(`UPDATE accounts SET balance = balance - 1000 WHERE kind='user' AND owner_id='bob'`);
 
 console.log('\n-- invariants --');
 eq(await wallet.conservation(pool),0,'conservation 0');

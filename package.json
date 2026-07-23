@@ -30,7 +30,9 @@
   "optionalDependencies": {
     "@ton/ton": "^15.1.0",
     "@ton/core": "^0.63.0",
-    "@ton/crypto": "^3.3.0"
+    "@ton/crypto": "^3.3.0",
+    "@solana/web3.js": "^1.98.0",
+    "@solana/spl-token": "^0.4.9"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3"

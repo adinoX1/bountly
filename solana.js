@@ -263,7 +263,9 @@ export async function handleWebhook(pool, { headers, body, log = console }) {
 // ============================================================
 export async function sweep({ fromIndex, log = console }) {
   const c = cfg();
-  const { web3 } = await _libs();
+  // _libs() never existed — this threw ReferenceError before it reached the
+  // chain, so sweeping has never actually run. Validate on devnet first.
+  const web3 = await import('@solana/web3.js');
   const spl = await import('@solana/spl-token');
   const conn = new web3.Connection(c.rpc, 'confirmed');
   const from = await deriveKeypair(fromIndex);

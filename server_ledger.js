@@ -226,7 +226,7 @@ export async function ledgerApi(ctx) {
   // identity (banned/isAdmin/name/joinedAt) lives in the blob; money in the ledger.
   const isDash = p.startsWith('/api/dash/');
   const isAdminAnalytics = p.startsWith('/api/admin/') &&
-    /(users|challenges|txns|deposits)$|\/(ban|credits)\//.test(p);
+    /(users|challenges|txns|deposits|health)$|\/(ban|credits)\//.test(p);
   if (isDash || isAdminAnalytics) {
     if (isAdminAnalytics && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
     const blobUsers = (ctx.db && ctx.db.users) ? Object.values(ctx.db.users) : [];
@@ -310,6 +310,35 @@ export async function ledgerApi(ctx) {
                   proofStatus: { approved: q.approved, rejected: q.rejected, pending: q.pending } } };
     }
 
+    // ledger.js has shipped conservation/reconcile/liabilities from day one but
+    // nothing ever called them. This is the endpoint to alert on: if `ok` goes
+    // false, the books no longer balance and payouts should stop.
+    async function health() {
+      const [conservation, drift, liabilitiesUsdt] = await Promise.all([
+        wallet.conservation(pool), wallet.reconcile(pool), wallet.liabilities(pool),
+      ]);
+      // the escrow account must equal what the open dares still say they hold
+      const e = (await pool.query(
+        `SELECT COALESCE((SELECT balance FROM accounts WHERE kind='escrow' AND owner_id=''),0) AS acct,
+                COALESCE((SELECT SUM(escrow_locked) FROM dares),0) AS locked`)).rows[0];
+      const escrowAccount = Number(e.acct), escrowLocked = Number(e.locked);
+      const escrowMatches = escrowAccount === escrowLocked;
+      return {
+        ok: conservation === 0 && drift.length === 0 && escrowMatches,
+        conservation,                       // must be 0: money is neither created nor destroyed
+        drift,                              // must be []: cached balances match the journal
+        escrowMatches,
+        escrowAccountUsdt: escrowAccount / wallet.MICRO,
+        escrowLockedUsdt: escrowLocked / wallet.MICRO,
+        liabilitiesUsdt,                    // the minimum reserve we must actually hold on-chain
+      };
+    }
+
+    if (p.endsWith('/health')     && method === 'GET') {
+      const h = await health();
+      json(res, h.ok ? 200 : 500, { health: h });
+      return true;
+    }
     if (p.endsWith('/overview')   && method === 'GET') { json(res, 200, { overview: await overview() }); return true; }
     if (p.endsWith('/users')      && method === 'GET') { json(res, 200, { users: await usersView() }); return true; }
     if (p.endsWith('/txns')       && method === 'GET') { json(res, 200, { txns: await txnsView() }); return true; }
