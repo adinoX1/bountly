@@ -645,13 +645,48 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---- serve uploaded videos (filenames are random, so unguessable) ----
+  // Streamed, with byte-range support. Both matter:
+  //  • iOS Safari and the Telegram in-app player open a video with
+  //    "Range: bytes=0-" and refuse to play a plain 200 response, so
+  //    without 206 handling proofs simply don't play on iPhone;
+  //  • the old fs.readFile buffered the whole clip (up to 50 MB) into
+  //    memory per viewer, so a handful of concurrent plays could OOM
+  //    the container.
   if (p.startsWith("/uploads/")){
-    const f = path.join(UP_DIR, path.basename(p)); // basename strips any traversal
-    return fs.readFile(f, (err, data) => {
-      if (err){ res.writeHead(404); return res.end("not found"); }
-      const ext = path.extname(f).toLowerCase();
+    const name = path.basename(p.slice("/uploads/".length));
+    if (!/^[\w.-]+$/.test(name)){ res.writeHead(404, SECURITY_HEADERS); return res.end("not found"); }
+    const f = path.join(UP_DIR, name);
+    return fs.stat(f, (err, st) => {
+      if (err || !st.isFile()){ res.writeHead(404, SECURITY_HEADERS); return res.end("not found"); }
       const types = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".avi": "video/x-msvideo" };
-      res.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream", ...SECURITY_HEADERS }); res.end(data);
+      const head = {
+        "Content-Type": types[path.extname(f).toLowerCase()] || "application/octet-stream",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600",
+        ...SECURITY_HEADERS
+      };
+      const send = (code, extra, start, end) => {
+        res.writeHead(code, { ...head, ...extra });
+        if (req.method === "HEAD") return res.end();
+        const s = fs.createReadStream(f, start == null ? undefined : { start, end });
+        s.on("error", () => res.destroy());          // don't take the process down
+        res.on("close", () => s.destroy());          // viewer seeked away / closed
+        s.pipe(res);
+      };
+
+      const rm = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+      if (rm && (rm[1] || rm[2])){
+        // "bytes=500-999", "bytes=500-" (open-ended) or "bytes=-500" (suffix)
+        let start = rm[1] ? Number(rm[1]) : st.size - Number(rm[2]);
+        let end   = rm[1] ? (rm[2] ? Number(rm[2]) : st.size - 1) : st.size - 1;
+        start = Math.max(0, start); end = Math.min(end, st.size - 1);
+        if (start >= st.size || end < start){
+          res.writeHead(416, { ...head, "Content-Range": `bytes */${st.size}` });
+          return res.end();
+        }
+        return send(206, { "Content-Range": `bytes ${start}-${end}/${st.size}`, "Content-Length": end - start + 1 }, start, end);
+      }
+      return send(200, { "Content-Length": st.size });
     });
   }
 

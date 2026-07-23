@@ -17,7 +17,8 @@
     "test:server": "node test_server_ledger.mjs",
     "test:ton": "node test_ton.mjs",
     "test:solana": "node test_solana.mjs",
-    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:ton && npm run test:solana"
+    "test:uploads": "node test_uploads.mjs",
+    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:ton && npm run test:solana && npm run test:uploads"
   },
   "dependencies": {
     "pg": "^8.13.1",
