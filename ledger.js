@@ -79,8 +79,12 @@ export async function postTx(db, { type, ref = null, meta = null, entries }) {
   for (const [id, d] of delta) {
     const acc = cur.get(id);
     const next = acc.balance + d;
-    if (GUARDED.has(acc.kind) && next < 0)
-      throw new Error(`insufficient funds: ${acc.kind} account ${id} would go to ${next}`);
+    // This message reaches the player, so state the shortfall as money — the
+    // raw micro-unit balance and the internal account id belong in logs.
+    if (GUARDED.has(acc.kind) && next < 0) {
+      const short = (-next / MICRO).toFixed(2).replace(/\.00$/, '');
+      throw new Error(`insufficient funds: ${acc.kind} is $${short} short`);
+    }
   }
 
   const tx = await db.query(

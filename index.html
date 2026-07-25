@@ -482,7 +482,7 @@ header{padding:0}
       <div><label>Description</label><textarea id="f-d" rows="3" placeholder="What exactly should the hunter do?"></textarea></div>
       <div><label>Rules of proof</label><textarea id="f-r" rows="2" placeholder="One take, say the code, no cuts…"></textarea></div>
       <div class="form-2">
-        <div><label>Reward / winner (€)</label><input id="f-rw" type="number" value="20" min="1"></div>
+        <div><label>Reward / winner ($)</label><input id="f-rw" type="number" value="20" min="1" step="1"></div>
         <div><label>Winners</label><select id="f-w"><option value="1">1 — fastest takes all</option><option>2</option><option>3</option><option>5</option></select></div>
       </div>
       <div><label>Deadline</label><select id="f-x">
@@ -491,9 +491,9 @@ header{padding:0}
       </select><div class="hint">If nobody claims it by then, your escrow is refunded automatically.</div></div>
       <div class="escrow">
         <div class="eh">Escrow breakdown</div>
-        <div class="ln"><span>Rewards</span><span id="e-rw">20,00 €</span></div>
-        <div class="ln"><span>Service fee 5%</span><span id="e-f">1,00 €</span></div>
-        <div class="ln tot"><span>Locked</span><b id="e-t">21,00 €</b></div>
+        <div class="ln"><span>Rewards</span><span id="e-rw">$20</span></div>
+        <div class="ln"><span>Service fee 5%</span><span id="e-f">$1</span></div>
+        <div class="ln tot"><span>Locked</span><b id="e-t">$21</b></div>
       </div>
       <button class="btn btn-lime" style="padding:14px;justify-content:center;font-size:15px" id="create-btn">Lock bounty &amp; post</button>
     </div>
@@ -512,8 +512,8 @@ header{padding:0}
 
   <!-- ===== PROFILE ===== -->
   <section class="view" data-view="profile">
-    <div class="page-h"><h2>Profile</h2><p>Your credits, dares and proof history.</p></div>
-<button class="btn btn-lime" id="deposit-btn" style="margin:0 0 20px"><svg viewBox="0 0 24 24" fill="none" width="18" height="18"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3 10.5h18" stroke="currentColor" stroke-width="2"/><circle cx="16.5" cy="14.7" r="1.25" fill="currentColor"/></svg>Deposit / Add credits</button>
+    <div class="page-h"><h2>Profile</h2><p>Your balance, dares and proof history.</p></div>
+<button class="btn btn-lime" id="deposit-btn" style="margin:0 0 20px"><svg viewBox="0 0 24 24" fill="none" width="18" height="18"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3 10.5h18" stroke="currentColor" stroke-width="2"/><circle cx="16.5" cy="14.7" r="1.25" fill="currentColor"/></svg>Deposit / Add funds</button>
     <div class="strip" id="p-strip" style="margin:0 0 30px"></div>
     <div class="sec-label">My submissions</div>
     <div id="p-subs"></div>
@@ -540,7 +540,7 @@ header{padding:0}
 <div id="wallet" class="modal-overlay">
 <div class="modal">
 <button class="modal-x" id="wallet-x">✕</button>
-<div class="d-title">Add credits</div>
+<div class="d-title">Add funds</div>
 <div id="wallet-body"><div style="color:var(--muted);text-align:center;padding:30px">Loading…</div></div>
 </div>
 </div>
@@ -571,6 +571,14 @@ async function api(path,opts={}){
   return r.json();
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+// Balances are dollar-pegged stablecoins — USDT on TON, USDC on Solana, both
+// 1:1 with the dollar — so a balance is shown as money, not as "credits".
+// Whole amounts stay clean; anything fractional keeps its cents.
+function money(n){
+  const v=Number(n); if(!isFinite(v)) return '—';
+  const a=Math.abs(v), s='$'+(Number.isInteger(a)?a:a.toFixed(2));
+  return v<0?'−'+s:s;
+}
 // A dare is claimable only while it has free slots AND is inside its deadline.
 // `expired`/`status` come from the JSON and LEDGER backends respectively; the
 // expiresAt check covers the gap before either sweeper has run.
@@ -619,10 +627,10 @@ async function loadChallenges(){
     const open=challenges.filter(isOpen);
     const liveTotal=open.reduce((a,c)=>a+c.reward*c.maxWinners,0);
     $('#strip').innerHTML=`
-      <div class="cell"><div class="v lime">${liveTotal} cr</div><div class="k">Bounties live</div></div>
+      <div class="cell"><div class="v lime">${money(liveTotal)}</div><div class="k">Bounties live</div></div>
       <div class="cell"><div class="v">${open.length}</div><div class="k">Open dares</div></div>
       <div class="cell"><div class="v">${challenges.length}</div><div class="k">Total dares</div></div>
-      <div class="cell"><div class="v">${ME?ME.credits:'—'}</div><div class="k">Your credits</div></div>`;
+      <div class="cell"><div class="v">${ME?money(ME.credits):'—'}</div><div class="k">Your balance</div></div>`;
     // filter: open = still claimable, closed/history = filled or expired
     const shown=challenges.filter(c=> chFilter==='open' ? isOpen(c) : !isOpen(c));
     if(!shown.length){
@@ -635,7 +643,7 @@ async function loadChallenges(){
       return `<div class="card" data-open="${b.id}" style="cursor:pointer">
         <div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${b.full?'':deadlineTag(b.expiresAt)}<span class="tag ${tag}"><span class="d"></span>${b.full?'filled':tag}</span></span></div>
         <h3>${esc(b.title)}</h3><div class="creator">by <span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span></div>
-        <div class="reward">${b.reward} cr<small>per winner</small></div>
+        <div class="reward">${money(b.reward)}<small>per winner</small></div>
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div>
         <div class="act"><button class="btn ${b.full?'btn-out':'btn-lime'}" style="width:100%;justify-content:center">${b.full?'View':'Take this dare'}</button></div>
       </div>`;
@@ -683,7 +691,7 @@ async function openDetail(id){
     $('#detail-body').innerHTML=`
       <div class="d-code">${c.code} · by <span class="plink" data-player="${esc(c.creator)}">@${esc(c.creator)}</span></div>
       <div class="d-title">${esc(c.title)}</div>
-      <div class="d-reward">${c.reward} cr<small>per winner · ${c.slots[0]}/${c.maxWinners} slots filled</small></div>
+      <div class="d-reward">${money(c.reward)}<small>per winner · ${c.slots[0]}/${c.maxWinners} slots filled</small></div>
       ${c.expiresAt&&!c.full?`<div style="margin-top:10px">${deadlineTag(c.expiresAt)}</div>`:''}
       <div class="slots" style="margin:16px 0"><div class="track">${segs}</div></div>
       ${winHtml}
@@ -755,7 +763,7 @@ async function openPlayer(username){
       <div class="card" style="margin-bottom:10px;padding:16px">
         <div class="c-top"><span class="c-id">${esc(d.code)}</span><span class="tag ${d.full?'full':'live'}"><span class="d"></span>${d.full?'filled':'live'}</span></div>
         <h3 style="font-size:15px">${esc(d.title)}</h3>
-        <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px">${d.reward} cr · slots ${d.slots[0]}/${d.slots[1]} · ${d.subs} proofs</div>
+        <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px">${money(d.reward)} · slots ${d.slots[0]}/${d.slots[1]} · ${d.subs} proofs</div>
       </div>`).join('') : '<div style="color:var(--muted);font-size:14px">No dares posted yet.</div>';
     $('#player-body').innerHTML=`
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
@@ -763,10 +771,10 @@ async function openPlayer(username){
         <div><div style="font-size:20px;font-weight:800;letter-spacing:-.02em">@${esc(pl.username)}${badge}</div>
           <div style="font-family:var(--mono);font-size:12px;color:var(--muted)">${pl.rank?'rank #'+pl.rank+' · ':''}joined ${since}</div></div>
       </div>
-      <div class="id-box">Telegram ID: <b>${esc(pl.telegramId)}</b> · ${pl.credits} cr</div>
+      <div class="id-box">Telegram ID: <b>${esc(pl.telegramId)}</b> · ${money(pl.credits)}</div>
       <div class="strip" style="margin:16px 0 22px">
         <div class="cell"><div class="v lime">${pl.wins}</div><div class="k">Wins</div></div>
-        <div class="cell"><div class="v">${pl.earned} cr</div><div class="k">Earned</div></div>
+        <div class="cell"><div class="v">${money(pl.earned)}</div><div class="k">Earned</div></div>
         <div class="cell"><div class="v">${pl.approved}/${pl.totalSubs}</div><div class="k">Proofs ok</div></div>
         <div class="cell"><div class="v">${pl.posted}</div><div class="k">Dares</div></div>
       </div>
@@ -790,7 +798,7 @@ $('#player').onclick=e=>{ if(e.target.id==='player') closePlayer(); };
 document.addEventListener('click',e=>{ const el=e.target.closest('[data-player]'); if(el){ e.stopPropagation(); openPlayer(el.dataset.player); } });
 
 // ---- create ----
-const fmt=n=>n+' cr';
+const fmt=n=>money(n);
 function calc(){const r=+$('#f-rw').value||0,n=+$('#f-w').value;
   $('#e-rw').textContent=fmt(r*n);$('#e-f').textContent=fmt(Math.round(r*n*.05));$('#e-t').textContent=fmt(r*n+Math.round(r*n*.05))}
 $('#f-rw').oninput=calc;$('#f-w').onchange=calc;calc();
@@ -799,7 +807,7 @@ $('#create-btn').onclick=async()=>{
   const reward=+$('#f-rw').value,maxWinners=+$('#f-w').value,expiresInDays=+$('#f-x').value;
   if(!title||!desc){toast('Fill in the title and description.');return;}
   try{ const r=await api('/api/challenges',{method:'POST',body:JSON.stringify({title,desc,rules,reward,maxWinners,expiresInDays})});
-    toast(`${r.code} posted! Locked ${r.locked} cr.`); haptic('success'); confetti(); await refreshMe(); go('bounties');
+    toast(`${r.code} posted! Locked ${money(r.locked)}.`); haptic('success'); confetti(); await refreshMe(); go('bounties');
     $('#f-t').value='';$('#f-d').value='';$('#f-r').value='';
   }catch(e){ toast(e.message); }
 };
@@ -808,7 +816,7 @@ $('#create-btn').onclick=async()=>{
 async function loadBoard(){
   try{ const {leaderboard}=await api('/api/leaderboard');
     $('#board').innerHTML=leaderboard.length?leaderboard.map((p,i)=>{const cls=i<3?['r1','r2','r3'][i]:'rx';
-      return `<div class="lbrow"><div class="rank ${cls}">${i+1}</div><div class="who"><span class="plink" data-player="${esc(p.username)}">@${esc(p.username)}</span><div class="wins">${p.wins} wins</div></div><div class="earn">${p.earned} cr</div></div>`;}).join('')
+      return `<div class="lbrow"><div class="rank ${cls}">${i+1}</div><div class="who"><span class="plink" data-player="${esc(p.username)}">@${esc(p.username)}</span><div class="wins">${p.wins} wins</div></div><div class="earn">${money(p.earned)}</div></div>`;}).join('')
       :'<div style="color:var(--muted)">No hunters yet — be the first.</div>';
   }catch(e){ $('#board').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
@@ -821,7 +829,7 @@ async function loadProfile(){
     const ps=$('#p-subs'); if(ps.dataset.sig===sig) return; ps.dataset.sig=sig;
     const wins=a.submissions.filter(s=>s.won).length;
     $('#p-strip').innerHTML=`
-      <div class="cell"><div class="v lime">${ME?ME.credits:'—'} cr</div><div class="k">Credits</div></div>
+      <div class="cell"><div class="v lime">${ME?money(ME.credits):'—'}</div><div class="k">Balance</div></div>
       <div class="cell"><div class="v">${wins}</div><div class="k">Wins</div></div>
       <div class="cell"><div class="v">${a.submissions.length}</div><div class="k">Submissions</div></div>
       <div class="cell"><div class="v">${a.challenges.length}</div><div class="k">Posted dares</div></div>`;
@@ -841,7 +849,7 @@ async function loadProfile(){
       const segs=Array.from({length:b.maxWinners},(_,i)=>`<div class="seg ${i<b.slots[0]?'on':''}"></div>`).join('');
       const live=isOpen(b), lab=b.full?'filled':(live?'live':'expired');
       return `<div class="card"><div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${live?deadlineTag(b.expiresAt):''}<span class="tag ${live?'live':'full'}"><span class="d"></span>${lab}</span></span></div>
-        <h3>${esc(b.title)}</h3><div class="reward">${b.reward} cr<small>per winner</small></div>
+        <h3>${esc(b.title)}</h3><div class="reward">${money(b.reward)}<small>per winner</small></div>
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div></div>`;
     }).join(''):'<div style="color:var(--muted)">No posted dares yet.</div>';
   }catch(e){ $('#p-subs').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
@@ -890,7 +898,7 @@ async function refreshMe(){
     const fb=$('#follow-btn'); let chip=$('#me-chip');
     if(!chip){ chip=document.createElement('span'); chip.id='me-chip';
       chip.style.cssText='font-family:var(--mono);font-size:13px;color:var(--lime);margin-right:10px;align-self:center'; fb.parentNode.insertBefore(chip,fb); }
-    const newText=`@${user.username} · ${user.credits} cr`;
+    const newText=`@${user.username} · ${money(user.credits)}`;
     if(chip.textContent && chip.textContent!==newText){ chip.classList.remove('bump'); void chip.offsetWidth; chip.classList.add('bump'); }
     chip.textContent=newText;
     if(user.isAdmin && !$('#tab-admin')){
@@ -967,16 +975,16 @@ async function loadUsers(){
       <div class="card" style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <div><div style="font-weight:700">@${esc(x.username)} ${x.isAdmin?'<span class="tag live" style="margin-left:4px">admin</span>':''} ${x.banned?'<span class="tag full">banned</span>':''}</div>
-            <div style="font-family:var(--mono);font-size:12px;color:var(--muted)">${x.credits} cr · ${x.wins} wins · ${x.posted} dares · ${x.subs} proofs</div></div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--muted)">${money(x.credits)} · ${x.wins} wins · ${x.posted} dares · ${x.subs} proofs</div></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <input class="cr-input" id="cr-${x.id}" type="number" value="${x.credits}" style="width:90px" ${x.isAdmin?'disabled':''}>
-          <button class="btn btn-out btn-sm" data-setcr="${x.id}" ${x.isAdmin?'disabled style="opacity:.4"':''}>Set cr</button>
+          <button class="btn btn-out btn-sm" data-setcr="${x.id}" ${x.isAdmin?'disabled style="opacity:.4"':''}>Set balance</button>
           ${x.isAdmin?'':`<button class="btn btn-sm ${x.banned?'btn-lime':'btn-out'}" data-ban="${x.id}">${x.banned?'Unban':'Ban'}</button>`}
         </div></div>`).join('');
     el.querySelectorAll('[data-setcr]').forEach(b=>b.onclick=async()=>{
       const v=$('#cr-'+b.dataset.setcr).value; try{ await api('/api/admin/credits/'+b.dataset.setcr,{method:'POST',body:JSON.stringify({credits:+v})});
-        toast('Credits updated'); haptic('success'); el.dataset.sig=''; loadUsers(); }catch(e){toast(e.message);} });
+        toast('Balance updated'); haptic('success'); el.dataset.sig=''; loadUsers(); }catch(e){toast(e.message);} });
     el.querySelectorAll('[data-ban]').forEach(b=>b.onclick=async()=>{
       try{ const r=await api('/api/admin/ban/'+b.dataset.ban,{method:'POST'}); toast(r.banned?'User banned':'User unbanned'); haptic('warning'); el.dataset.sig=''; loadUsers(); }catch(e){toast(e.message);} });
   }catch(e){ $('#admin-users').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
@@ -990,13 +998,13 @@ async function loadDares(){
       <div class="card" style="margin-bottom:10px">
         <div class="c-top"><span class="c-id">${esc(c.code)}</span><span class="tag ${c.full?'full':'live'}"><span class="d"></span>${c.full?'filled':'live'}</span></div>
         <h3 style="font-size:16px">${esc(c.title)}</h3>
-        <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin:6px 0">by @${esc(c.creator)} · ${c.reward} cr · slots ${c.slots[0]}/${c.maxWinners} · ${c.subs} proofs</div>
+        <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin:6px 0">by @${esc(c.creator)} · ${money(c.reward)} · slots ${c.slots[0]}/${c.maxWinners} · ${c.subs} proofs</div>
         <button class="btn btn-out btn-sm" data-del="${c.id}" style="border-color:var(--red);color:var(--red)">Delete &amp; refund</button>
       </div>`).join(''):'<div style="color:var(--muted)">No dares.</div>';
     el.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
       if(!confirm('Delete this dare? Unspent escrow is refunded to the creator.')) return;
       try{ const r=await api('/api/admin/challenge/'+b.dataset.del+'/delete',{method:'POST'});
-        toast('Deleted · refunded '+r.refunded+' cr'); haptic('warning'); el.dataset.sig=''; loadDares(); }catch(e){toast(e.message);} });
+        toast('Deleted · refunded '+money(r.refunded)); haptic('warning'); el.dataset.sig=''; loadDares(); }catch(e){toast(e.message);} });
   }catch(e){ $('#admin-dares').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
 
@@ -1009,7 +1017,7 @@ async function loadLedger(){
       const col=t.type==='payout'||t.type==='refund'?'var(--lime)':t.type==='fee'||t.type==='commission'?'#ff9f45':'var(--txt)';
       return `<div style="display:flex;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px">
         <div><span style="font-family:var(--mono);color:${col};font-weight:600">${esc(t.type)}</span> <span style="color:var(--muted)">${esc(t.from)}→${esc(t.to)}</span><div style="font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(t.note||'')} · ${time}</div></div>
-        <div style="font-weight:700;color:${col}">${t.amount} cr</div></div>`;
+        <div style="font-weight:700;color:${col}">${money(t.amount)}</div></div>`;
     }).join('')+`</div>`:'<div style="color:var(--muted)">No transactions yet.</div>';
   }catch(e){ $('#admin-ledger').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
@@ -1103,7 +1111,7 @@ function renderWallet(){
   const {w,method}=DEP; const b=$('#wallet-body'); const methods=depMethods(w);
   const isSol=method==='sol'; const addr=isSol? w.sol.address : w.address;
   b.innerHTML=`
-    <div class="dep-bal"><span class="k">Your balance</span><span class="v">${w.balance} cr</span></div>
+    <div class="dep-bal"><span class="k">Your balance</span><span class="v">${money(w.balance)}</span></div>
     ${methods.length>1?`<div class="dep-seg" id="dep-seg">${methods.map(mm=>`<button data-m="${mm.id}" class="${mm.id===method?'on':''}">${esc(mm.label)}</button>`).join('')}</div>`:''}
     <div class="d-box"><div class="lbl">Step 1 · Amount (optional)</div>
       <div class="dep-amt"><input id="dep-amt" type="number" inputmode="decimal" placeholder="0.00" value="${esc(DEP.amount)}"><span class="cur">${isSol?'USDC':'USDT'}</span></div>
@@ -1133,14 +1141,14 @@ function renderWallet(){
 }
 async function loadDepHistory(){
   try{ const {deposits}=await api('/api/wallet/deposits'); const el=$('#dep-hist'); if(!el)return;
-    el.innerHTML=deposits.length?deposits.map(d=>`<div class="row"><span>${new Date(d.at).toLocaleDateString()}</span><span class="amt">+${d.amount} cr</span><span class="src">${esc(d.source)}</span></div>`).join('')
+    el.innerHTML=deposits.length?deposits.map(d=>`<div class="row"><span>${new Date(d.at).toLocaleDateString()}</span><span class="amt">+${money(d.amount)}</span><span class="src">${esc(d.source)}</span></div>`).join('')
       :'<div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div>';
   }catch(e){/* deposits endpoint only exists in ledger mode — leave the placeholder */}
 }
 // What the status line should say, given what the chain currently reports.
 // Pure so the wording and the progress maths can be tested directly.
 function depStatusView(pending, gained){
-  if(gained>0) return { cls:'done', text:'Received +'+gained+' cr — you\'re topped up!', pct:100 };
+  if(gained>0) return { cls:'done', text:'Received +'+money(gained)+' — you\'re topped up!', pct:100 };
   const live=(pending||[]).filter(x=>x.status==='seen');
   if(live.length){
     const p=live[0];
@@ -1172,7 +1180,7 @@ async function depTick(){
     const [w,pn]=await Promise.all([ api('/api/wallet/info'),
       api('/api/wallet/pending').catch(()=>({pending:[]})) ]);
     if(!DEP.w) return;
-    const bal=$('.dep-bal .v'); if(bal) bal.textContent=w.balance+' cr';
+    const bal=$('.dep-bal .v'); if(bal) bal.textContent=money(w.balance);
     if(w.balance>DEP.startBalance){
       DEP.gained=(DEP.gained||0)+(w.balance-DEP.startBalance);
       DEP.startBalance=w.balance; DEP.w.balance=w.balance;

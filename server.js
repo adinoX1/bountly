@@ -34,6 +34,11 @@ const ADMIN_IDS      = (process.env.ADMIN_IDS || "").split(",").map(s => s.trim(
 const PORT           = process.env.PORT || 3000;
 const PLAYER_FEE     = 0.10, CREATOR_FEE = 0.05;
 const START_CREDITS  = 100;
+// Balances are dollar-pegged stablecoins (USDT on TON, USDC on Solana), so
+// every number a player reads is money, not "credits".
+const money = n => { const v = Number(n); if (!isFinite(v)) return "$0";
+  const a = Math.abs(v), s = "$" + (Number.isInteger(a) ? a : a.toFixed(2));
+  return v < 0 ? "-" + s : s; };
 const MAX_VIDEO      = 50 * 1024 * 1024;            // 50 MB cap
 const APP_LINK       = process.env.APP_LINK || "";  // e.g. https://t.me/getbountlybot/arena
 const PUBLIC_URL     = (process.env.PUBLIC_URL || "").replace(/\/+$/, ""); // for the Telegram webhook
@@ -349,7 +354,7 @@ function expireChallenges(){
     save();
     for (const d of done){
       console.log(`dare ${d.code} expired — refunded ${d.refunded} to @${d.creator}`);
-      if (d.creatorId) notify(d.creatorId, `⏳ Your dare ${d.code} expired — nobody claimed it.\n${d.refunded} cr has been refunded to your balance.`);
+      if (d.creatorId) notify(d.creatorId, `⏳ Your dare ${d.code} expired — nobody claimed it.\n${money(d.refunded)} has been refunded to your balance.`);
     }
   }
   return done;
@@ -416,7 +421,7 @@ function actApprove(id){
   if (!sub || sub.status !== "pending") return { code: 404, body: { error: "not found" } };
   const { ch, won } = approveAndPay(sub);
   notify(sub.userId, won
-    ? `🏆 Your proof for ${ch.code} was approved — you won ${Math.round(ch.reward * (1 - PLAYER_FEE))} cr! 🎉\n"${ch.title}"`
+    ? `🏆 Your proof for ${ch.code} was approved — you won ${money(Math.round(ch.reward * (1 - PLAYER_FEE)))}! 🎉\n"${ch.title}"`
     : `✅ Your proof for ${ch.code} was approved, but the slot was already taken by a faster hunter. Keep going!`);
   save();
   return { code: 200, body: { ok: true, winner: won } };
@@ -733,11 +738,16 @@ const server = http.createServer(async (req, res) => {
 
     if (p === "/api/challenges" && req.method === "POST"){
       if (u.banned) return json(res, 403, { error: "banned" });
-      const rw = Math.max(0, Math.floor(Number(body.reward) || 0));
+      // Bounties are whole dollars (JSON mode settles payouts in whole units),
+      // so a typed 7.50 is refused rather than silently floored to 7.
+      const rawRw = Number(body.reward);
+      const rw = Math.max(0, Math.floor(rawRw || 0));
+      if (Number.isFinite(rawRw) && rawRw !== rw && rw >= 1)
+        return json(res, 400, { error: `bounties are whole dollars — use ${money(rw)} or ${money(rw + 1)}` });
       const n = Math.max(1, Math.min(20, Math.floor(Number(body.maxWinners) || 1)));
       if (!body.title || !body.desc || rw < 1) return json(res, 400, { error: "title, desc and reward required" });
       const total = rw * n, fee = Math.round(total * CREATOR_FEE);
-      if (u.credits < total + fee) return json(res, 400, { error: `not enough credits (need ${total + fee}, have ${u.credits})` });
+      if (u.credits < total + fee) return json(res, 400, { error: `not enough funds (need ${money(total + fee)}, you have ${money(u.credits)})` });
       u.credits -= (total + fee);
       const ttlRaw = body.expiresInDays == null ? (DARE_TTL_DAYS > 0 ? DARE_TTL_DAYS : null) : Number(body.expiresInDays);
       if (ttlRaw != null && !(ttlRaw > 0 && ttlRaw <= 365)) return json(res, 400, { error: "expiresInDays must be between 1 and 365" });
@@ -931,7 +941,7 @@ initStore()
   .then(() => { if (!(LEDGER && USE_DB)){ const t = setInterval(expireChallenges, 5 * 60e3); t.unref?.(); expireChallenges(); } })
   .then(() => { if (LEDGER && USE_DB) startExpiryWatcher(pool, { onExpired: e => {
     const creator = Object.values(db.users).find(x => x.username === e.creator);
-    if (creator) notify(creator.id, `⏳ Your dare ${e.code} expired — nobody claimed it.\n${e.refundedUsdt} cr has been refunded to your balance.`);
+    if (creator) notify(creator.id, `⏳ Your dare ${e.code} expired — nobody claimed it.\n${money(e.refundedUsdt)} has been refunded to your balance.`);
   } }); })
   .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool)
     .then(() => { console.log("✓ Solana deposits enabled (SOLANA=1)"); solana.startAddressWatcher(pool); })

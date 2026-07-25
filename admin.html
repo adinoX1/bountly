@@ -176,6 +176,12 @@ async function api(path,opts={}){
   return d;
 }
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Balances are dollar-pegged stablecoins (USDT / USDC), so they read as money.
+function money(n){
+  const v=Number(n); if(!isFinite(v)) return '—';
+  const a=Math.abs(v), s='$'+(Number.isInteger(a)?a:a.toFixed(2));
+  return v<0?'−'+s:s;
+}
 const fdate=ms=>{const d=new Date(ms);return d.toLocaleDateString()+' '+d.toLocaleTimeString().slice(0,5);};
 
 // ---- auth ----
@@ -217,7 +223,7 @@ async function loadOverview(){
   try{ const {overview:o}=await api('/api/dash/overview');
     $('#p-overview').innerHTML=`
       <div class="grid">
-        <div class="stat"><div class="v lime">${o.creditsInPlay}</div><div class="k">Credits in play</div></div>
+        <div class="stat"><div class="v lime">${money(o.creditsInPlay)}</div><div class="k">Money in play</div></div>
         <div class="stat"><div class="v">${o.users}</div><div class="k">Users</div></div>
         <div class="stat"><div class="v red">${o.banned}</div><div class="k">Banned</div></div>
         <div class="stat"><div class="v">${o.challenges}</div><div class="k">Dares total</div></div>
@@ -235,7 +241,7 @@ async function loadOverview(){
           <div class="legend"><span><i style="background:var(--lime)"></i>Dares</span><span><i style="background:var(--blue)"></i>Proofs</span></div>
         </div>
         <div class="chart-card">
-          <h3>Credit flows</h3><div class="cap">Where credits moved</div>
+          <h3>Money flows</h3><div class="cap">Where the money moved</div>
           <div class="flow-row" id="ch-flows"></div>
         </div>
         <div class="chart-card">
@@ -281,7 +287,7 @@ function renderFlows(f){
   const rows=[['Paid out',f.paidOut,'var(--lime)'],['Fees earned',f.fees,'var(--amber)'],['Refunded',f.refunded,'var(--blue)']];
   const max=Math.max(1,f.paidOut,f.fees,f.refunded);
   $('#ch-flows').innerHTML=rows.map(([k,v,c])=>`
-    <div class="fr"><span class="muted">${k}</span><b style="color:${c}">${v} cr</b></div>
+    <div class="fr"><span class="muted">${k}</span><b style="color:${c}">${money(v)}</b></div>
     <div class="bar"><span style="width:0;background:${c}" data-w="${(v/max*100)}"></span></div>`).join('');
   requestAnimationFrame(()=>$('#ch-flows').querySelectorAll('.bar span').forEach(s=>s.style.width=s.dataset.w+'%'));
 }
@@ -369,11 +375,11 @@ async function loadUsers(){
       <div class="card">
         <div class="row">
           <div><b>@${esc(x.username)}</b> ${x.isAdmin?'<span class="tag admin">admin</span>':''} ${x.banned?'<span class="tag banned">banned</span>':''}
-            <div class="sub">id ${esc(x.id)} · ${x.credits} cr · ${x.wins} wins · ${x.posted} dares · ${x.subs} proofs · ${x.earned} cr earned</div></div>
+            <div class="sub">id ${esc(x.id)} · ${money(x.credits)} · ${x.wins} wins · ${x.posted} dares · ${x.subs} proofs · ${money(x.earned)} earned</div></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <input type="number" id="cr-${x.id}" value="${x.credits}" ${x.isAdmin?'disabled':''}>
-          <button class="btn btn-out btn-sm" data-cr="${x.id}" ${x.isAdmin?'disabled':''}>Set credits</button>
+          <button class="btn btn-out btn-sm" data-cr="${x.id}" ${x.isAdmin?'disabled':''}>Set balance</button>
           ${x.isAdmin?'':`<button class="btn btn-sm ${x.banned?'btn-lime':'btn-out'}" data-ban="${x.id}">${x.banned?'Unban':'Ban'}</button>`}
         </div>
       </div>`).join('');
@@ -389,18 +395,18 @@ async function loadUsers(){
 async function loadDares(){
   try{ const {challenges}=await api('/api/dash/challenges');
     const open=challenges.filter(c=>!c.full).length, filled=challenges.length-open, totalReward=challenges.reduce((a,c)=>a+c.reward*c.maxWinners,0);
-    const sum=`<div class="sumbar"><div class="chip"><b>${challenges.length}</b>dares</div><div class="chip lime"><b>${open}</b>open</div><div class="chip"><b>${filled}</b>filled</div><div class="chip amber"><b>${totalReward}</b>cr in pool</div></div>`;
+    const sum=`<div class="sumbar"><div class="chip"><b>${challenges.length}</b>dares</div><div class="chip lime"><b>${open}</b>open</div><div class="chip"><b>${filled}</b>filled</div><div class="chip amber"><b>${money(totalReward)}</b>in pool</div></div>`;
     $('#p-dares').innerHTML=sum+(challenges.length?challenges.map(c=>`
       <div class="card">
         <div class="row">
           <div><b>${esc(c.code)}</b> <span class="tag ${c.full?'full':'live'}">${c.full?'filled':'live'}</span>
-            <div class="sub">${esc(c.title)} · by @${esc(c.creator)} · ${c.reward} cr · slots ${c.slots[0]}/${c.maxWinners} · ${c.subs} proofs · ${c.pending} pending</div></div>
+            <div class="sub">${esc(c.title)} · by @${esc(c.creator)} · ${money(c.reward)} · slots ${c.slots[0]}/${c.maxWinners} · ${c.subs} proofs · ${c.pending} pending</div></div>
           <button class="btn btn-out btn-sm" data-del="${c.id}" style="border-color:var(--red);color:var(--red)">Delete & refund</button>
         </div>
       </div>`).join(''):'<div class="loading">No dares.</div>');
     $('#p-dares').querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
       if(!confirm('Delete this dare? Unspent escrow is refunded to the creator.')) return;
-      try{ const r=await api('/api/dash/challenge/'+b.dataset.del+'/delete',{method:'POST'}); alert('Deleted · refunded '+r.refunded+' cr'); loadDares(); }catch(e){alert(e.message);} });
+      try{ const r=await api('/api/dash/challenge/'+b.dataset.del+'/delete',{method:'POST'}); alert('Deleted · refunded '+money(r.refunded)); loadDares(); }catch(e){alert(e.message);} });
   }catch(e){ $('#p-dares').innerHTML=`<div class="loading">${esc(e.message)}</div>`; }
 }
 
@@ -411,7 +417,7 @@ async function loadLedger(){
     $('#p-ledger').innerHTML=sum+(txns.length?`<div class="ledger">`+txns.map(t=>`
       <div class="l"><div><span class="mono t-${esc(t.type)}" style="font-weight:600">${esc(t.type)}</span>
         <span class="muted">${esc(t.from)} → ${esc(t.to)}</span><div class="sub">${esc(t.note||'')} · ${fdate(t.at)}</div></div>
-        <div class="amt t-${esc(t.type)}">${t.amount} cr</div></div>`).join('')+`</div>`:'<div class="loading">No transactions yet.</div>');
+        <div class="amt t-${esc(t.type)}">${money(t.amount)}</div></div>`).join('')+`</div>`:'<div class="loading">No transactions yet.</div>');
   }catch(e){ $('#p-ledger').innerHTML=`<div class="loading">${esc(e.message)}</div>`; }
 }
 

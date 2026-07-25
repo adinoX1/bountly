@@ -162,6 +162,20 @@ eq(r.body.health.ok,false,'health not ok');
 ok(r.body.health.drift.some(d=>d.owner==='bob'),'drift names the tampered account');
 await pool.query(`UPDATE accounts SET balance = balance - 1000 WHERE kind='user' AND owner_id='bob'`);
 
+console.log('\n-- a bounty is whole dollars, and says so --');
+r = await call('POST','/api/challenges',{ user:admin, body:{ title:'Cents', desc:'x', rules:'y', reward:7.5, maxWinners:1 } });
+eq(r.code,400,'a fractional bounty is refused, not silently floored');
+ok(/whole dollars/.test(r.body.error),'the message explains why');
+ok(/\$7\b/.test(r.body.error) && /\$8\b/.test(r.body.error),'and offers both neighbours');
+eq((await call('POST','/api/challenges',{ user:admin, body:{ title:'Whole', desc:'x', rules:'y', reward:7, maxWinners:1 } })).code,200,'a whole-dollar bounty still posts');
+
+console.log('\n-- an overspend reports the shortfall as money --');
+r = await call('POST','/api/challenges',{ user:bob, body:{ title:'Too rich', desc:'x', rules:'y', reward:9999, maxWinners:1 } });
+eq(r.code,400,'the ledger refuses it');
+ok(/insufficient funds/.test(r.body.error),'it is an insufficient-funds error');
+ok(/\$[\d.]+ short/.test(r.body.error),'the shortfall is stated in dollars');
+ok(!/\d{7}/.test(r.body.error),'no raw micro-units leak to the player');
+
 console.log('\n-- in-flight deposits are visible to their owner only --');
 const beforeSighting = (await call('GET','/api/me',{ user:alice })).body.user.credits;
 await deposits.noteSeen(pool,{ chain:'ton', txref:'live-1', username:'alice', amountUsdt:25, confirms:1, need:3 });

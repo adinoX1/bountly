@@ -126,9 +126,15 @@ export async function ledgerApi(ctx) {
   if (p === '/api/challenges' && method === 'POST') {
     if (user.banned) { json(res, 403, { error: 'banned' }); return true; }
     const b = ctx.body || {};
-    const reward = Math.max(0, Math.floor(Number(b.reward) || 0));
+    // Bounties are whole dollars. Flooring a typed 7.50 down to 7 silently
+    // changed what the creator was posting, so say so instead.
+    const rawReward = Number(b.reward);
+    const reward = Math.max(0, Math.floor(rawReward || 0));
     const n = Math.max(1, Math.min(20, Math.floor(Number(b.maxWinners) || 1)));
     if (!b.title || !b.desc || reward < 1) { json(res, 400, { error: 'title, desc and reward required' }); return true; }
+    if (Number.isFinite(rawReward) && rawReward !== reward) {
+      json(res, 400, { error: 'bounties are whole dollars — use $' + reward + ' or $' + (reward + 1) }); return true;
+    }
     // A deadline is the only thing that gets the creator's escrow back if the
     // dare is never completed, so it defaults on (DARE_TTL_DAYS, 0 = never).
     const defTtl = Number(process.env.DARE_TTL_DAYS ?? 14);

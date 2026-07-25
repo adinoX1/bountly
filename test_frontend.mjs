@@ -59,11 +59,13 @@ ok(isOpen({ full: false, expiresAt: Date.now() + 60e3 }), 'one minute left → s
 console.log('\n-- deadlineTag: the countdown a player actually reads --');
 eq(tag(null), '', 'no deadline renders nothing');
 ok(tag(Date.now() - 1000).includes('expired'), 'past deadline says expired');
-// the clock moves between building the input and reading the output, so a
-// 30-minute deadline legitimately renders as 29m
+// The clock moves between building the input and reading the output, so an
+// exact deadline legitimately renders one unit short. Each tag is rendered
+// ONCE and matched against both — rendering twice and OR-ing the results
+// fails whenever the boundary falls between the two calls.
 ok(/\b(29|30)m left/.test(tag(Date.now() + 30 * 60e3)), 'under an hour counts minutes');
-ok(tag(Date.now() + 5 * HOUR).includes('4h left') || tag(Date.now() + 5 * HOUR).includes('5h left'), 'under two days counts hours');
-ok(tag(Date.now() + 6 * DAY).includes('5d left') || tag(Date.now() + 6 * DAY).includes('6d left'), 'beyond that counts days');
+ok(/\b(4|5)h left/.test(tag(Date.now() + 5 * HOUR)), 'under two days counts hours');
+ok(/\b(5|6)d left/.test(tag(Date.now() + 6 * DAY)), 'beyond that counts days');
 ok(tag(Date.now() + 3 * HOUR).includes('soon'), 'under 24h is flagged soon (amber)');
 ok(!tag(Date.now() + 5 * DAY).includes('soon'), 'plenty of time is not flagged soon');
 
@@ -92,9 +94,55 @@ ok(!link().includes('amount='), 'no amount param when the field is blank');
 setDEP({ w: wTonSol, method: 'sol', amount: '25' });
 ok(link().includes('amount=25'), 'a typed amount rides along on the Solana link');
 
+console.log('\n-- balances read as money, not "credits" --');
+const mctx = vm.createContext({ Number, Math, isFinite });
+vm.runInContext(grab('money'), mctx);
+const money = n => vm.runInContext(`money(${JSON.stringify(n)})`, mctx);
+eq(money(42), '$42', 'a whole balance stays clean');
+eq(money(0), '$0', 'zero is zero');
+eq(money(2.5), '$2.50', 'a fractional deposit keeps its cents');
+eq(money(0.75), '$0.75', 'so does a sub-dollar one');
+eq(money(-5), '−$5', 'a debit is signed, with the symbol still leading');
+eq(money(undefined), '—', 'a missing balance renders as a dash, not $NaN');
+ok(!/\bcr\b/.test(money(42)), 'nothing says "cr" any more');
+
+// The dashboard carries its own copy — it must agree, or the same balance
+// reads differently depending on which screen an operator is looking at.
+const adminSrc = inlineScripts('admin.html').map(b => b.code).join('\n');
+const grabFrom = (src, name) => {
+  const i = src.indexOf(`function ${name}(`);
+  if (i < 0) throw new Error(`${name} not found`);
+  let depth = 0, started = false;
+  for (let j = src.indexOf('{', i); j < src.length; j++) {
+    if (src[j] === '{') { depth++; started = true; }
+    else if (src[j] === '}') { depth--; if (started && depth === 0) return src.slice(i, j + 1); }
+  }
+  throw new Error(`${name} is unbalanced`);
+};
+const actx = vm.createContext({ Number, Math, isFinite });
+vm.runInContext(grabFrom(adminSrc, 'money'), actx);
+for (const n of [42, 0, 2.5, 0.75, -5]) {
+  eq(vm.runInContext(`money(${n})`, actx), money(n), `dashboard agrees on ${n}`);
+}
+
+console.log('\n-- no screen still talks in "credits" --');
+for (const f of ['index.html', 'admin.html']) {
+  const html = fs.readFileSync(path.join(__dirname, f), 'utf8');
+  // strip the identifiers that legitimately keep the old name (API fields,
+  // element ids, the /credits/ route) before looking at what a user reads
+  const copy = html
+    .replace(/\b(ME|user|pl|x|u2?)\.credits\b/g, '')
+    .replace(/credits\s*:/g, '').replace(/\/credits\//g, '')
+    .replace(/creditsInPlay/g, '').replace(/\bcr-[\w${.}]+/g, '')
+    .replace(/data-(setcr|cr)=/g, '').replace(/dataset\.(setcr|cr)\b/g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  ok(!/\d\s*cr\b/.test(copy), `${f}: no amount is labelled "cr"`);
+  ok(!/>\s*(Set )?[Cc]redits\s*</.test(copy), `${f}: no visible "Credits" label`);
+}
+
 console.log('\n-- the live confirmation status a depositor watches --');
-const sctx = vm.createContext({ Date, Math, String, JSON });
-vm.runInContext(grab('depStatusView'), sctx);
+const sctx = vm.createContext({ Date, Math, String, JSON, Number, isFinite });
+vm.runInContext([grab('money'), grab('depStatusView')].join('\n'), sctx);
 const view = (pending, gained) => vm.runInContext(`depStatusView(${JSON.stringify(pending)}, ${JSON.stringify(gained || 0)})`, sctx);
 
 let v = view([], 0);
@@ -118,7 +166,7 @@ ok(v.pct <= 100 && v.pct > 0, 'a nonsense requirement cannot produce a broken ba
 
 v = view([{ status: 'seen', amount: 25, confirms: 2, need: 3 }], 25);
 eq(v.cls, 'done', 'once credited, the credit wins over any in-flight row');
-ok(v.text.includes('+25'), 'and names what landed');
+ok(v.text.includes('+$25'), 'and names what landed, as money');
 
 v = view([{ status: 'failed', amount: 25, detail: 'transaction aborted on-chain' }], 0);
 eq(v.cls, 'bad', 'a failed transfer is shown as failed');

@@ -1,8 +1,12 @@
 # ⚡ Bountly
 
-A **Telegram Mini App** where people post *dares* (challenges) with a credit reward,
+A **Telegram Mini App** where people post *dares* (challenges) with a cash bounty,
 and others complete them by submitting a short video proof. An admin (or the web
 dashboard) reviews each proof and pays out the bounty.
+
+> Balances are dollar-pegged stablecoins — USDT on TON, USDC on Solana — so every
+> amount in the UI is shown as dollars. Bounties are posted in whole dollars;
+> balances and deposits carry cents.
 
 > Stack: a single dependency-light **Node.js** HTTP server (`server.js`), a Telegram
 > Mini App frontend (`index.html`), and a password-protected web dashboard
