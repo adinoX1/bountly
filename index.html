@@ -176,9 +176,15 @@ footer a{color:var(--lime);text-decoration:none}
 .dep-chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .dep-chips button{padding:5px 12px;border:1px solid var(--line2);border-radius:20px;background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer}
 .dep-chips button:hover{color:var(--txt);border-color:var(--lime)}
-.dep-status{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);padding:12px 14px;background:var(--bg);border:1px solid var(--line);border-radius:12px;margin:16px 0}
-.dep-status .dot{width:9px;height:9px;border-radius:50%;background:#ff9f45;flex-shrink:0;animation:tagpulse 1.4s ease-in-out infinite}
+.dep-status{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--muted);padding:12px 14px;background:var(--bg);border:1px solid var(--line);border-radius:12px;margin:16px 0}
+.dep-status .dot{width:9px;height:9px;border-radius:50%;background:#ff9f45;flex-shrink:0;margin-top:5px;animation:tagpulse 1.4s ease-in-out infinite}
+.dep-status .dep-body{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+.dep-status .dep-prog{display:none;height:3px;background:var(--line2);border-radius:2px;overflow:hidden}
+.dep-status .dep-prog i{display:block;height:100%;width:0;background:currentColor;transition:width .5s ease}
+.dep-status.seen{color:#4aa8ff;border-color:rgba(74,168,255,.35)} .dep-status.seen .dot{background:#4aa8ff}
+.dep-status.seen .dep-prog{display:block}
 .dep-status.done{color:var(--lime)} .dep-status.done .dot{background:var(--lime);animation:none}
+.dep-status.bad{color:var(--red)} .dep-status.bad .dot{background:var(--red);animation:none}
 .dep-hist{margin-top:6px}
 .dep-hist .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:13px}
 .dep-hist .row .amt{font-family:var(--mono);color:var(--lime);font-weight:600}
@@ -1066,7 +1072,7 @@ function _depOpen(dl){ try{ (window.Telegram&&Telegram.WebApp&&Telegram.WebApp.o
 // ---- guided deposit flow ----
 // State for the open wallet modal. `startBalance` lets the poller detect an
 // incoming transfer and flip the status line to a success state.
-let DEP={ w:null, method:null, amount:'', startBalance:0, poll:null };
+let DEP={ w:null, method:null, amount:'', startBalance:0, poll:null, ticks:0, seen:{} };
 function depMethods(w){ const m=[];
   if(w.address) m.push({id:'ton', label:'TON · USDT', net:w.network});
   if(w.sol)     m.push({id:'sol', label:'Solana · USDC', net:w.sol.network});
@@ -1084,11 +1090,13 @@ async function openWallet(){
   try{ const w=await api('/api/wallet/info');
     const methods=depMethods(w);
     if(!methods.length){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
-    DEP={ w, method:methods[0].id, amount:'', startBalance:w.balance, poll:DEP.poll };
+    DEP={ w, method:methods[0].id, amount:'', startBalance:w.balance, poll:DEP.poll, ticks:0, seen:{} };
     renderWallet();
-    // watch for the transfer to land; the ledger credits it after on-chain confirmation
+    // watch for the transfer to land: the server scans the chain for this
+    // account, reports how confirmed each sighting is, and credits at finality
     clearInterval(DEP.poll);
-    DEP.poll=setInterval(depTick, 5000);
+    DEP.poll=setInterval(depTick, 4000);
+    depTick();
   }catch(e){ b.innerHTML=`<div class="dep-err">${esc(e.message)}</div>`; }
 }
 function renderWallet(){
@@ -1112,7 +1120,7 @@ function renderWallet(){
         <div class="id-box">${esc(w.comment)}</div>
         <button class="btn btn-out btn-sm" style="margin-top:8px" data-copy="${esc(w.comment)}">Copy comment</button>
         <div style="font-size:12px;color:var(--muted);margin-top:8px">Without this exact comment we can't match your deposit to your account.</div></div>`}
-    <div class="dep-status" id="dep-status"><span class="dot"></span><span>Waiting for your transfer… credited automatically once it confirms on-chain.</span></div>
+    <div class="dep-status" id="dep-status"><span class="dot"></span><span class="dep-body"><span class="dep-msg">Watching the chain for your transfer… it&rsquo;s credited automatically once it confirms.</span><span class="dep-prog"><i></i></span></span></div>
     <div class="d-box"><div class="lbl">Recent deposits</div><div class="dep-hist" id="dep-hist"><div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div></div></div>`;
 
   b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
@@ -1129,16 +1137,48 @@ async function loadDepHistory(){
       :'<div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div>';
   }catch(e){/* deposits endpoint only exists in ledger mode — leave the placeholder */}
 }
-// poll for the incoming transfer; when the balance rises, celebrate and refresh history
+// What the status line should say, given what the chain currently reports.
+// Pure so the wording and the progress maths can be tested directly.
+function depStatusView(pending, gained){
+  if(gained>0) return { cls:'done', text:'Received +'+gained+' cr — you\'re topped up!', pct:100 };
+  const live=(pending||[]).filter(x=>x.status==='seen');
+  if(live.length){
+    const p=live[0];
+    const need=Math.max(1,+p.need||1), got=Math.max(0,+p.confirms||0);
+    const pct=Math.max(8, Math.min(100, Math.round(got/need*100)));
+    const amt=p.amount+' '+(p.chain==='sol'?'USDC':'USDT');
+    const txt=got<=0
+      ? 'Found your '+amt+' — waiting for the first confirmation'
+      : 'Found your '+amt+' — confirming on-chain ('+got+'/'+need+')';
+    return { cls:'seen', text:txt, pct:pct };
+  }
+  const bad=(pending||[]).find(x=>x.status==='failed');
+  if(bad) return { cls:'bad', text:(bad.detail||'That transfer never confirmed')+' — nothing was credited.', pct:0 };
+  return { cls:'', text:'Watching the chain for your transfer… it\'s credited automatically once it confirms.', pct:0 };
+}
+function renderDepStatus(v){
+  const st=$('#dep-status'); if(!st) return;
+  st.className='dep-status'+(v.cls?' '+v.cls:'');
+  const msg=st.querySelector('.dep-msg'); if(msg) msg.textContent=v.text;
+  const bar=st.querySelector('.dep-prog i'); if(bar) bar.style.width=v.pct+'%';
+}
+// Every tick reads what the server knows; every third tick also asks it to go
+// look at the chain again, so a fresh transfer surfaces within seconds.
 async function depTick(){
   if(!$('#wallet').classList.contains('show')){ clearInterval(DEP.poll); return; }
-  try{ const w=await api('/api/wallet/info'); if(!DEP.w) return;
+  DEP.ticks=(DEP.ticks||0)+1;
+  if(DEP.ticks%3===1) api('/api/wallet/scan',{method:'POST',body:'{}'}).catch(()=>{});
+  try{
+    const [w,pn]=await Promise.all([ api('/api/wallet/info'),
+      api('/api/wallet/pending').catch(()=>({pending:[]})) ]);
+    if(!DEP.w) return;
     const bal=$('.dep-bal .v'); if(bal) bal.textContent=w.balance+' cr';
     if(w.balance>DEP.startBalance){
-      const gained=w.balance-DEP.startBalance; DEP.startBalance=w.balance; DEP.w.balance=w.balance;
-      const st=$('#dep-status'); if(st){ st.classList.add('done'); st.querySelector('span:last-child').textContent=`Received +${gained} cr — you're topped up!`; }
+      DEP.gained=(DEP.gained||0)+(w.balance-DEP.startBalance);
+      DEP.startBalance=w.balance; DEP.w.balance=w.balance;
       haptic('success'); confetti(); refreshMe(); loadDepHistory();
-    } else if(DEP.w){ DEP.w.balance=w.balance; }
+    } else { DEP.w.balance=w.balance; }
+    renderDepStatus(depStatusView(pn.pending, DEP.gained||0));
   }catch(e){}
 }
 function closeWallet(){ $('#wallet').classList.remove('show'); clearInterval(DEP.poll); }

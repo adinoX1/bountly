@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as L from './ledger.js';
+import * as D from './deposits.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // extra columns/sequence layered on top of the money schema
@@ -52,6 +53,7 @@ export async function initLedger(db) {
   const BASE_SCHEMA = fs.readFileSync(path.join(__dirname, 'ledger_schema.sql'), 'utf8');
   await runSql(db, BASE_SCHEMA);
   await runSql(db, EXTRA_SCHEMA);
+  await D.ensureSchema(db);   // in-flight on-chain deposits
 }
 
 // acquire a dedicated client for one transaction (prod pg Pool).

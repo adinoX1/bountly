@@ -687,7 +687,11 @@ const server = http.createServer(async (req, res) => {
     // Per-user write budget. Nothing but the dashboard login was limited, so a
     // single account could hammer dare creation or push 50 MB uploads in a loop.
     if (req.method === "POST"){
-      if (!writeLimit.take(u.id)) return json(res, 429, { error: "too many requests — slow down" });
+      // /api/wallet/scan is a read against the chain, not a write, and carries
+      // its own per-user throttle — it must not eat a player's write budget
+      // while their deposit sheet is open.
+      if (p !== "/api/wallet/scan" && !writeLimit.take(u.id))
+        return json(res, 429, { error: "too many requests — slow down" });
       if (/\/submit$/.test(p) && !uploadLimit.take(u.id))
         return json(res, 429, { error: "too many proof uploads this hour — try again later" });
     }
@@ -929,6 +933,8 @@ initStore()
     const creator = Object.values(db.users).find(x => x.username === e.creator);
     if (creator) notify(creator.id, `⏳ Your dare ${e.code} expired — nobody claimed it.\n${e.refundedUsdt} cr has been refunded to your balance.`);
   } }); })
-  .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool).then(() => console.log("✓ Solana deposits enabled (SOLANA=1)")).catch(e => console.error("Solana schema:", e.message)); })
+  .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool)
+    .then(() => { console.log("✓ Solana deposits enabled (SOLANA=1)"); solana.startAddressWatcher(pool); })
+    .catch(e => console.error("Solana schema:", e.message)); })
   .then(() => registerTelegram())
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });

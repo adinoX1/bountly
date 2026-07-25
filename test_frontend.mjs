@@ -59,7 +59,9 @@ ok(isOpen({ full: false, expiresAt: Date.now() + 60e3 }), 'one minute left → s
 console.log('\n-- deadlineTag: the countdown a player actually reads --');
 eq(tag(null), '', 'no deadline renders nothing');
 ok(tag(Date.now() - 1000).includes('expired'), 'past deadline says expired');
-ok(tag(Date.now() + 30 * 60e3).includes('30m left'), 'under an hour counts minutes');
+// the clock moves between building the input and reading the output, so a
+// 30-minute deadline legitimately renders as 29m
+ok(/\b(29|30)m left/.test(tag(Date.now() + 30 * 60e3)), 'under an hour counts minutes');
 ok(tag(Date.now() + 5 * HOUR).includes('4h left') || tag(Date.now() + 5 * HOUR).includes('5h left'), 'under two days counts hours');
 ok(tag(Date.now() + 6 * DAY).includes('5d left') || tag(Date.now() + 6 * DAY).includes('6d left'), 'beyond that counts days');
 ok(tag(Date.now() + 3 * HOUR).includes('soon'), 'under 24h is flagged soon (amber)');
@@ -89,6 +91,39 @@ ok(link().includes('spl-token=MintUSDC'), 'Solana link pins the USDC mint (no lo
 ok(!link().includes('amount='), 'no amount param when the field is blank');
 setDEP({ w: wTonSol, method: 'sol', amount: '25' });
 ok(link().includes('amount=25'), 'a typed amount rides along on the Solana link');
+
+console.log('\n-- the live confirmation status a depositor watches --');
+const sctx = vm.createContext({ Date, Math, String, JSON });
+vm.runInContext(grab('depStatusView'), sctx);
+const view = (pending, gained) => vm.runInContext(`depStatusView(${JSON.stringify(pending)}, ${JSON.stringify(gained || 0)})`, sctx);
+
+let v = view([], 0);
+eq(v.cls, '', 'nothing in flight → the plain watching state');
+ok(/watching/i.test(v.text), 'and it says we are watching the chain');
+
+v = view([{ status: 'seen', amount: 25, confirms: 0, need: 3 }], 0);
+eq(v.cls, 'seen', 'a sighting switches the status line');
+ok(v.text.includes('25'), 'it names the amount it found');
+ok(/first confirmation/.test(v.text), 'zero confirmations reads as waiting for the first');
+ok(v.pct > 0, 'the bar is visible even at zero so it does not look stalled');
+
+v = view([{ status: 'seen', amount: 25, confirms: 2, need: 3 }], 0);
+ok(v.text.includes('(2/3)'), 'progress is shown as confirmations out of the requirement');
+eq(v.pct, 67, 'and the bar tracks it');
+
+v = view([{ status: 'seen', amount: 25, confirms: 9, need: 3 }], 0);
+eq(v.pct, 100, 'the bar never overshoots 100%');
+v = view([{ status: 'seen', amount: 25, confirms: 1, need: 0 }], 0);
+ok(v.pct <= 100 && v.pct > 0, 'a nonsense requirement cannot produce a broken bar');
+
+v = view([{ status: 'seen', amount: 25, confirms: 2, need: 3 }], 25);
+eq(v.cls, 'done', 'once credited, the credit wins over any in-flight row');
+ok(v.text.includes('+25'), 'and names what landed');
+
+v = view([{ status: 'failed', amount: 25, detail: 'transaction aborted on-chain' }], 0);
+eq(v.cls, 'bad', 'a failed transfer is shown as failed');
+ok(/aborted/.test(v.text), 'with the chain\'s reason');
+ok(/nothing was credited/i.test(v.text), 'and reassurance that no money moved');
 
 console.log('\n-- the create form and API agree on the field name --');
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');

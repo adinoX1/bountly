@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { ledgerApi } from './server_ledger.js';
 import * as wallet from './wallet.js';
+import * as deposits from './deposits.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -160,6 +161,26 @@ eq(r.code,500,'health reports 500 after a manual balance edit');
 eq(r.body.health.ok,false,'health not ok');
 ok(r.body.health.drift.some(d=>d.owner==='bob'),'drift names the tampered account');
 await pool.query(`UPDATE accounts SET balance = balance - 1000 WHERE kind='user' AND owner_id='bob'`);
+
+console.log('\n-- in-flight deposits are visible to their owner only --');
+const beforeSighting = (await call('GET','/api/me',{ user:alice })).body.user.credits;
+await deposits.noteSeen(pool,{ chain:'ton', txref:'live-1', username:'alice', amountUsdt:25, confirms:1, need:3 });
+r = await call('GET','/api/wallet/pending',{ user:alice });
+eq(r.code,200,'pending endpoint answers');
+eq(r.body.pending.length,1,'alice sees her transfer confirming');
+eq(r.body.pending[0].amount,25,'with the amount spotted on-chain');
+eq(r.body.pending[0].confirms,1,'and how far along it is');
+eq(r.body.pending[0].need,3,'and what it needs');
+ok(r.body.pending[0].text.includes('1 of 3'),'the server phrases the progress');
+eq((await call('GET','/api/wallet/pending',{ user:bob })).body.pending.length,0,'bob sees nothing of it');
+eq((await call('GET','/api/me',{ user:alice })).body.user.credits,beforeSighting,'a pending transfer moves no credits');
+
+console.log('\n-- scanning is throttled per player --');
+r = await call('POST','/api/wallet/scan',{ user:alice, body:{} });
+eq(r.code,200,'a scan is accepted');
+eq(r.body.scanned,true,'the first one runs');
+eq((await call('POST','/api/wallet/scan',{ user:alice, body:{} })).body.scanned,false,'an immediate second one is refused');
+eq((await call('POST','/api/wallet/scan',{ user:bob, body:{} })).body.scanned,true,'another player is unaffected');
 
 console.log('\n-- invariants --');
 eq(await wallet.conservation(pool),0,'conservation 0');

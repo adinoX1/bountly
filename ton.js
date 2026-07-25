@@ -3,19 +3,23 @@
 //
 // DEPOSITS (safe, read-only on-chain): pollDeposits() asks a toncenter
 // API for incoming USDT (jetton) transfers to the platform deposit
-// address, reads the text comment (= the depositing @username), and
-// credits the ledger via creditConfirmedDeposit() — which is IDEMPOTENT
-// (a given on-chain tx hash credits at most once, also enforced by a
-// unique index). Needs no private key.
+// address and reads the text comment (= the depositing @username). It
+// does NOT credit on sight — a transfer is recorded in deposit_watch
+// and only credited once its masterchain block is TON_MIN_CONFIRMATIONS
+// deep (see deposits.js). Crediting stays IDEMPOTENT: a given tx hash
+// credits at most once, also enforced by a unique index. No private key
+// is involved anywhere on this path.
 //
 // WITHDRAWALS (sensitive): the on-chain send signs with WALLET_MNEMONIC,
 // which YOU set as an env var — never handled by the assistant.
 // sendUsdt() must be validated on testnet before any real funds.
 //
 // Env: TON_NETWORK=testnet, TON_API, TON_API_KEY, DEPOSIT_ADDRESS,
-//      USDT_JETTON_MASTER, WALLET_MNEMONIC, USDT_DECIMALS=6
+//      USDT_JETTON_MASTER, WALLET_MNEMONIC, USDT_DECIMALS=6,
+//      TON_MIN_CONFIRMATIONS=1
 // ============================================================
 import * as wallet from './wallet.js';
+import * as D from './deposits.js';
 
 export const cfg = () => {
   const net = process.env.TON_NETWORK || 'testnet';
@@ -27,9 +31,22 @@ export const cfg = () => {
     deposit: process.env.DEPOSIT_ADDRESS || '',
     jetton: process.env.USDT_JETTON_MASTER || '',
     decimals: Number(process.env.USDT_DECIMALS || 6),
+    // How deep the masterchain block holding a transfer must be before we
+    // spend money on it. TON finalises in one block, so 1 is the honest
+    // default; raise it if you want a bigger margin.
+    minConfirms: Math.max(1, Number(process.env.TON_MIN_CONFIRMATIONS || 1)),
     configured: !!(process.env.DEPOSIT_ADDRESS && process.env.USDT_JETTON_MASTER),
   };
 };
+
+const authHeaders = () => { const c = cfg(); return c.apiKey ? { 'X-API-Key': c.apiKey } : {}; };
+
+async function api(path) {
+  const c = cfg();
+  const r = await fetch(`${c.api}${path}`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(`toncenter HTTP ${r.status}`);
+  return r.json();
+}
 
 const rawToUsdt = (raw, decimals) => Number(BigInt(raw)) / 10 ** decimals;
 
@@ -57,43 +74,113 @@ export function decodeComment(b64) {
   } catch { return ''; }
 }
 
-// Poll toncenter for incoming jetton transfers and credit them.
-// NOTE: verify the response field names against your testnet.
+// toncenter has renamed these fields across versions and the shape differs
+// between v2 and v3. Normalising here keeps the tolerance in one tested
+// place instead of scattered through the polling loop.
+export function transferFields(t, decimals = 6) {
+  if (!t || typeof t !== 'object') return null;
+  const txhash = t.transaction_hash || t.trace_id || t.transaction_id || '';
+  const username = decodeComment(t.forward_payload) || t.comment || '';
+  let amountUsdt = 0;
+  try { amountUsdt = rawToUsdt(t.amount || '0', decimals); } catch { amountUsdt = 0; }
+  const seqno = Number(t.mc_block_seqno ?? t.masterchain_seqno ?? t.block_seqno ?? 0);
+  if (!txhash || !username || !(amountUsdt > 0)) return null;
+  return { txhash, username, amountUsdt, seqno };
+}
+
+// The head of the masterchain — the yardstick every confirmation count is
+// measured against.
+export async function headSeqno() {
+  const j = await api('/masterchainInfo');
+  return Number(j?.last?.seqno ?? j?.last_seqno ?? j?.seqno ?? 0);
+}
+
+// Look one transaction back up by hash: how deep is it, and did it abort?
+export async function txState(hash) {
+  const j = await api(`/transactions?hash=${encodeURIComponent(hash)}&limit=1`);
+  const tx = (j.transactions || j.txs || [])[0];
+  if (!tx) return { seen: false, failed: false, confirms: 0 };
+  const aborted = !!(tx.description?.aborted ?? tx.aborted);
+  if (aborted) return { seen: true, failed: true, confirms: 0, detail: 'transaction aborted on-chain' };
+  const seqno = Number(tx.mc_block_seqno ?? tx.masterchain_seqno ?? tx.block_seqno ?? 0);
+  return { seen: true, failed: false, confirms: D.tonConfirms(seqno, await headSeqno()) };
+}
+
+// Re-read the transfer itself at credit time. The sighting told us what an
+// indexer listing claimed; this is the number we actually pay on, and a
+// disagreement means we pay nothing.
+export async function readTransfer(hash) {
+  const c = cfg();
+  const j = await api(`/jetton/transfers?address=${encodeURIComponent(c.deposit)}`
+    + `&direction=in&jetton_master=${encodeURIComponent(c.jetton)}&limit=100`);
+  const list = j.jetton_transfers || j.transfers || [];
+  for (const t of list) {
+    const f = transferFields(t, c.decimals);
+    if (f && f.txhash === hash) return f;
+  }
+  return null;
+}
+
+// The reader deposits.js drives: how confirmed is it, and how do we pay it.
+export function reader(pool, log = console) {
+  return {
+    status: hash => txState(hash),
+    credit: async ({ txref, username, amountUsdt }) => {
+      const fresh = await readTransfer(txref);
+      if (!fresh) {
+        log.warn?.(`ton: ${String(txref).slice(0, 12)} confirmed but no longer in the transfer window — not crediting`);
+        return { credited: false, reason: 'transfer not found on re-read' };
+      }
+      if (fresh.username !== username || Math.abs(fresh.amountUsdt - amountUsdt) > 1e-9) {
+        return { credited: false, reason: 'on-chain transfer does not match what we saw' };
+      }
+      return creditConfirmedDeposit(pool, { txhash: txref, username: fresh.username, amountUsdt: fresh.amountUsdt });
+    },
+  };
+}
+
+// Poll toncenter for incoming jetton transfers and WATCH them. Crediting is
+// left to the confirmation pass, so a transfer that is visible but not yet
+// deep enough shows up to the player as "confirming" instead of silently
+// becoming money.
 export async function pollDeposits(pool, log = console) {
   const c = cfg();
   if (!c.configured) return { ok: false, reason: 'TON not configured' };
-  const url = `${c.api}/jetton/transfers?address=${encodeURIComponent(c.deposit)}`
+  const url = `/jetton/transfers?address=${encodeURIComponent(c.deposit)}`
             + `&direction=in&jetton_master=${encodeURIComponent(c.jetton)}&limit=50`;
-  let data;
+  let data, head = 0;
   try {
-    const r = await fetch(url, { headers: c.apiKey ? { 'X-API-Key': c.apiKey } : {} });
-    if (!r.ok) { log.error?.('toncenter HTTP', r.status); return { ok: false, status: r.status }; }
-    data = await r.json();
+    [data, head] = await Promise.all([api(url), headSeqno().catch(() => 0)]);
   } catch (e) { log.error?.('toncenter fetch', e.message); return { ok: false, error: e.message }; }
 
   const transfers = data.jetton_transfers || data.transfers || [];
-  let credited = 0;
+  let watched = 0;
   for (const t of transfers) {
-    const txhash = t.transaction_hash || t.trace_id || t.transaction_id;
-    const username = decodeComment(t.forward_payload) || t.comment || '';
-    const amountUsdt = rawToUsdt(t.amount || '0', c.decimals);
-    if (!txhash || !username || !(amountUsdt > 0)) continue;
+    const f = transferFields(t, c.decimals);
+    if (!f) continue;
     try {
-      const res = await creditConfirmedDeposit(pool, { txhash, username, amountUsdt });
-      if (res.credited) { credited++; log.log?.(`deposit ${amountUsdt} USDT -> @${username} (${String(txhash).slice(0, 12)})`); }
-    } catch (e) { log.error?.('credit error', e.message); }
+      const r = await D.noteSeen(pool, {
+        chain: 'ton', txref: f.txhash, username: f.username, amountUsdt: f.amountUsdt,
+        confirms: D.tonConfirms(f.seqno, head), need: c.minConfirms,
+        detail: `${f.amountUsdt} USDT`,
+      });
+      if (r.watched) watched++;
+    } catch (e) { log.error?.('watch error', e.message); }
   }
-  return { ok: true, scanned: transfers.length, credited };
+  const settled = await D.confirmOpen(pool, { ton: reader(pool, log) }, { log });
+  return { ok: true, scanned: transfers.length, watched, credited: settled.credited, confirming: settled.confirming };
 }
 
 // Run the poller on an interval (call once at startup).
 export function startDepositWatcher(pool, everyMs = 30000, log = console) {
   const c = cfg();
   if (!c.configured) { log.warn?.('TON deposit watcher off (set DEPOSIT_ADDRESS + USDT_JETTON_MASTER)'); return null; }
-  log.log?.(`TON deposit watcher on (${c.network}, every ${everyMs / 1000}s)`);
+  log.log?.(`TON deposit watcher on (${c.network}, every ${everyMs / 1000}s, ${c.minConfirms} confirmation${c.minConfirms > 1 ? 's' : ''})`);
   const tick = () => pollDeposits(pool, log).catch(e => log.error?.('poll', e.message));
   tick();
-  return setInterval(tick, everyMs);
+  const t = setInterval(tick, everyMs);
+  t.unref?.();
+  return t;
 }
 
 // ---- WITHDRAWAL (signs with WALLET_MNEMONIC you provide; testnet-first) ----

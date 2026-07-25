@@ -27,6 +27,25 @@ dashboard) reviews each proof and pays out the bounty.
   upholds the rejection (final).
 - **Leaderboard, profiles, transaction ledger** are all derived from the same state.
 
+### Topping up
+
+With `LEDGER=1` a player funds their balance by sending USDT on TON or USDC on
+Solana. Detection is automatic and does not depend on the player telling us
+anything:
+
+1. **Spotted.** The TON poller, the Helius webhook, or — with no webhook
+   configured at all — a direct poll of the cluster notices a transfer to a
+   deposit address. It is recorded as *seen*, never credited on sight.
+2. **Confirming.** A pass re-reads the transaction from the chain and tracks
+   how settled it is: masterchain depth on TON, `finalized` commitment on
+   Solana. The deposit sheet shows the progress live.
+3. **Credited.** Only at that point does the ledger move, keyed on the tx hash
+   so a transfer credits exactly once. A transfer that aborts, or that never
+   confirms, is closed out and the player is told — no money moves either way.
+
+The sheet asks the server to look at the chain while it is open, so a transfer
+normally surfaces within seconds rather than at the next background sweep.
+
 ---
 
 ## Quick start (local)
@@ -151,8 +170,9 @@ server.js        # HTTP layer: routing, auth, JSON-mode state, static serving
 server_ledger.js # the same API surface, backed by the ledger (LEDGER=1)
 ledger.js        # double-entry primitives: postTx, balances, invariants
 wallet.js        # dare/submission content on top of the ledger + read models
+deposits.js      # in-flight transfers: seen → confirming → credited
 ton.js           # TON deposit polling (+ an unwired withdrawal helper)
-solana.js        # per-user Solana USDC deposit addresses via Helius
+solana.js        # per-user Solana USDC deposit addresses, webhook + polling
 index.html       # Telegram Mini App (the player-facing UI)
 admin.html       # web dashboard (password-protected)
 .env.example     # every environment variable, documented

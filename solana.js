@@ -3,10 +3,12 @@
 //
 // MODEL: each user gets a unique deposit address derived from ONE master
 // mnemonic (operator-held; never hardcoded, read from env). A user sends
-// USDC to their address (NO memo). A Helius webhook pings the server, which
-// then INDEPENDENTLY re-reads the transaction from an RPC at `finalized`
-// commitment and verifies it before crediting. Funds are swept to a hot
-// wallet (fee-payer), so per-user addresses never need pre-funded SOL.
+// USDC to their address (NO memo). A Helius webhook pings the server —
+// and if no webhook is configured, pollAddresses() finds the transfer by
+// asking the cluster directly, so deposits are detected either way. Both
+// paths only RECORD the sighting; the credit comes from an INDEPENDENT
+// re-read at `finalized` commitment (see deposits.js). Funds are swept to
+// a hot wallet (fee-payer), so per-user addresses never need pre-funded SOL.
 //
 // SECURITY — never trust the webhook payload or the client:
 //   • credit only from an on-chain tx read via RPC at `finalized`
@@ -20,6 +22,7 @@
 // ============================================================
 import crypto from 'node:crypto';
 import * as wallet from './wallet.js';
+import * as D from './deposits.js';
 
 // ---- config (all via environment) ----
 export const cfg = () => {
@@ -169,6 +172,54 @@ export async function verifyAndCredit(pool, { signature, ownerAddress, username,
   }
 }
 
+// ---- confirmation reads -------------------------------------------------
+
+// Ask the cluster how settled a signature is. `finalized` is the only
+// answer worth money; anything else is progress we can show the player.
+export async function signatureStatus(signature) {
+  const r = await _rpc('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]);
+  return (r && r.value && r.value[0]) || null;
+}
+
+// The USDC amount a transaction credits to `owner`, read at `confirmed`.
+// This is for DISPLAY only — it is what lets the deposit sheet say "spotted
+// 25 USDC" before finality. The credit path re-reads at `finalized` and is
+// the only number that ever becomes money.
+export async function previewAmount(signature, owner) {
+  const c = cfg();
+  const tx = await _rpc('getTransaction', [signature,
+    { commitment: 'confirmed', maxSupportedTransactionVersion: 0, encoding: 'jsonParsed' }]);
+  if (!tx || !tx.meta || tx.meta.err) return 0;
+  return usdcCredited(tx.meta.preTokenBalances, tx.meta.postTokenBalances,
+    { owner, mint: c.usdcMint, decimals: c.decimals });
+}
+
+// USDC lands in the owner's associated token account, not on the wallet
+// address itself, so that is what we have to watch for signatures.
+export async function usdcAccountFor(owner) {
+  const c = cfg();
+  const r = await _rpc('getTokenAccountsByOwner',
+    [owner, { mint: c.usdcMint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+  const acc = (r && r.value || [])[0];
+  return acc ? acc.pubkey : null;
+}
+
+// The reader deposits.js drives.
+export function reader(pool, log = console) {
+  return {
+    status: async signature => D.solConfirms(await signatureStatus(signature)),
+    credit: async ({ txref, username }) => {
+      // The watch row keys on the account, so resolve its deposit address
+      // here — verifyAndCredit refuses to credit a transfer that landed
+      // anywhere else.
+      const r = await pool.query(`SELECT address FROM solana_addr WHERE username=$1`, [username]);
+      const address = r.rows[0] && r.rows[0].address;
+      if (!address) return { credited: false, reason: 'no deposit address for that account' };
+      return verifyAndCredit(pool, { signature: txref, ownerAddress: address, username, log });
+    },
+  };
+}
+
 // ============================================================
 // Per-user deposit-address registry (Postgres). Only the index + public
 // address are stored — never a private key. Index 0 is reserved for the
@@ -229,31 +280,98 @@ export async function registerAddressWithHelius(address) {
   return true;
 }
 
-// Handle a Helius webhook POST. Verifies the shared secret, then for every
-// USDC transfer to one of OUR deposit addresses, re-verifies on-chain and
-// credits (idempotent). Returns {ok, credited} or {ok:false, status}.
+// Handle a Helius webhook POST. Verifies the shared secret, then records
+// every USDC transfer aimed at one of OUR deposit addresses as a sighting.
+// The webhook usually fires before the slot is finalized, so crediting is
+// left to the confirmation pass — which re-reads the chain itself.
+// Returns {ok, seen, credited} or {ok:false, status}.
 export async function handleWebhook(pool, { headers, body, log = console }) {
   const c = cfg();
   if (!webhookAuthorized(headers, c.webhookSecret)) return { ok: false, status: 401 };
   const events = Array.isArray(body) ? body : (body ? [body] : []);
-  let credited = 0;
+  let seen = 0;
   for (const ev of events) {
     const sig = ev.signature || ev.transactionSignature;
     if (!sig) continue;
-    const owners = new Set();
+    // amounts from the payload are DISPLAY ONLY — never trusted for money
+    const hits = new Map();
     for (const t of (ev.tokenTransfers || [])) {
-      if (t && t.mint === c.usdcMint && t.toUserAccount) owners.add(t.toUserAccount);
+      if (!t || t.mint !== c.usdcMint || !t.toUserAccount) continue;
+      hits.set(t.toUserAccount, (hits.get(t.toUserAccount) || 0) + Number(t.tokenAmount || 0));
     }
-    for (const owner of owners) {
+    for (const [owner, hinted] of hits) {
       const u = await addressToUser(pool, owner);
       if (!u) continue;
       try {
-        const r = await verifyAndCredit(pool, { signature: sig, ownerAddress: owner, username: u.username, log });
-        if (r.credited) credited++;
-      } catch (e) { log.error?.('solana credit error', e.message); }
+        const st = await signatureStatus(sig).catch(() => null);
+        const v = D.solConfirms(st);
+        const amount = hinted > 0 ? hinted : await previewAmount(sig, owner).catch(() => 0);
+        const r = await D.noteSeen(pool, {
+          chain: 'sol', txref: sig, username: u.username, amountUsdt: amount,
+          confirms: v.confirms, need: D.SOL_NEED, detail: `${amount} USDC`,
+        });
+        if (r.watched) seen++;
+      } catch (e) { log.error?.('solana watch error', e.message); }
     }
   }
-  return { ok: true, credited };
+  const settled = await D.confirmOpen(pool, { sol: reader(pool, log) }, { log });
+  return { ok: true, seen, credited: settled.credited };
+}
+
+// Webhook-free detection: ask the cluster what has hit our deposit
+// addresses lately. This is what makes a deposit land without any Helius
+// webhook configured, and what backstops a webhook that was missed.
+// Pass `usernames` to scan just those accounts — that is the on-demand
+// scan the deposit sheet triggers while a player is watching it.
+export async function pollAddresses(pool, { usernames = null, limit = 10, max = 200, log = console } = {}) {
+  const c = cfg();
+  if (!c.configured) return { ok: false, reason: 'Solana not configured' };
+  await ensureSchema(pool);
+
+  const rows = (usernames && usernames.length
+    ? await pool.query(`SELECT username, address FROM solana_addr WHERE username = ANY($1)`, [usernames])
+    : await pool.query(`SELECT username, address FROM solana_addr ORDER BY idx DESC LIMIT $1`, [max])).rows;
+
+  let seen = 0;
+  for (const row of rows) {
+    let sigs = [];
+    try {
+      const ata = await usdcAccountFor(row.address);
+      if (!ata) continue;                       // no USDC account yet = nothing ever arrived
+      sigs = await _rpc('getSignaturesForAddress', [ata, { limit }]) || [];
+    } catch (e) { log.error?.('solana scan', row.username, e.message); continue; }
+
+    for (const s of sigs) {
+      if (!s || !s.signature || s.err) continue;
+      const known = await pool.query(
+        `SELECT 1 FROM deposit_watch WHERE chain='sol' AND txref=$1 LIMIT 1`, [s.signature]);
+      if (known.rows.length) continue;          // already tracked, the pass will settle it
+      try {
+        const amount = await previewAmount(s.signature, row.address);
+        if (!(amount > 0)) continue;            // not an inbound USDC credit to us
+        const v = D.solConfirms(await signatureStatus(s.signature).catch(() => null));
+        const r = await D.noteSeen(pool, {
+          chain: 'sol', txref: s.signature, username: row.username, amountUsdt: amount,
+          confirms: v.confirms, need: D.SOL_NEED, detail: `${amount} USDC`,
+        });
+        if (r.watched) seen++;
+      } catch (e) { log.error?.('solana preview', e.message); }
+    }
+  }
+  const settled = await D.confirmOpen(pool, { sol: reader(pool, log) }, { log });
+  return { ok: true, addresses: rows.length, seen, credited: settled.credited, confirming: settled.confirming };
+}
+
+// Background sweep of every registered address (call once at startup).
+export function startAddressWatcher(pool, everyMs = 60000, log = console) {
+  const c = cfg();
+  if (!c.configured) return null;
+  log.log?.(`Solana address watcher on (${c.network}, every ${everyMs / 1000}s)`);
+  const tick = () => pollAddresses(pool, { log }).catch(e => log.error?.('solana poll', e.message));
+  tick();
+  const t = setInterval(tick, everyMs);
+  t.unref?.();
+  return t;
 }
 
 // ============================================================

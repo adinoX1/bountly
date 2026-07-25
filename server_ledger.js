@@ -15,8 +15,22 @@
 // as the owner key — keeps the UI working unchanged).
 // ============================================================
 import * as wallet from './wallet.js';
+import * as ton from './ton.js';
 import { cfg as tonCfg } from './ton.js';
 import * as solana from './solana.js';
+import * as deposits from './deposits.js';
+
+// An on-demand chain scan costs an RPC round trip, so a player watching
+// their deposit sheet gets one every few seconds, not one per poll.
+const lastScan = new Map();
+const SCAN_EVERY_MS = 6000;
+function scanAllowed(uname, now = Date.now()) {
+  const prev = lastScan.get(uname) || 0;
+  if (now - prev < SCAN_EVERY_MS) return false;
+  lastScan.set(uname, now);
+  if (lastScan.size > 5000) for (const [k, t] of lastScan) if (now - t > 60e3) lastScan.delete(k);
+  return true;
+}
 
 const tx = (ctx, fn) => wallet.withClient(ctx.pool, fn);
 
@@ -208,6 +222,42 @@ export async function ledgerApi(ctx) {
   // ----- my own deposit history (powers the wallet history strip) -----
   if (p === '/api/wallet/deposits' && method === 'GET') {
     json(res, 200, { deposits: await wallet.userDeposits(pool, uname, 20) });
+    return true;
+  }
+
+  // ----- transfers of mine currently in flight, with how confirmed they are.
+  // This is what turns the deposit sheet from "waiting…" into a live state. -----
+  if (p === '/api/wallet/pending' && method === 'GET') {
+    const rows = await deposits.pendingFor(pool, uname);
+    json(res, 200, {
+      pending: rows.map(r => ({
+        chain: r.chain, ref: r.txref, amount: r.amountUsdt, status: r.status,
+        confirms: r.confirms, need: r.need, detail: r.detail,
+        at: r.firstSeen, text: deposits.progressText(r),
+      })),
+    });
+    return true;
+  }
+
+  // ----- "look now": scan the chain for THIS player's address on demand,
+  // so a transfer is picked up in seconds rather than on the next sweep. -----
+  if (p === '/api/wallet/scan' && method === 'POST') {
+    if (!scanAllowed(uname)) { json(res, 200, { scanned: false, reason: 'just looked' }); return true; }
+    const out = { scanned: true };
+    try {
+      if (solana.cfg().configured) {
+        const r = await solana.pollAddresses(pool, { usernames: [uname], limit: 5 });
+        out.solana = { seen: r.seen || 0, credited: r.credited || 0 };
+      }
+      // TON shares one address across everyone, so the sweep is global —
+      // but running the confirmation pass here still settles this player's
+      // transfer the moment it is deep enough.
+      if (tonCfg().configured) {
+        const r = await ton.pollDeposits(pool, { error: () => {}, warn: () => {}, log: () => {} });
+        out.ton = { credited: r.credited || 0, confirming: r.confirming || 0 };
+      }
+    } catch (e) { out.error = 'scan failed'; }
+    json(res, 200, out);
     return true;
   }
 
