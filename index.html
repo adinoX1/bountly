@@ -8,19 +8,24 @@
 <title>Bountly</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
+/* Base tokens. The design layer near the bottom of this stylesheet restates
+   them — keep the two in step, and never let --lime and --red collide again:
+   they used to be the same hex, which made a win and a rejection identical. */
 :root{
-  --bg:#000000;
-  --surface:#16181c;
-  --surface2:#1d1f24;
-  --line:#2a2d33;
-  --line2:#33373e;
-  --txt:#e7e9ea;
-  --muted:#71767b;
-  --lime:#f4212e;
-  --lime-d:#c01824;
-  --blue:#1d9bf0;
-  --green:#00ba7c;
-  --red:#f4212e;
+  --bg:#0a0b0d;
+  --surface:#13151a;
+  --surface2:#1a1d23;
+  --line:#22252b;
+  --line2:#2e3239;
+  --txt:#edeff2;
+  --muted:#8a919b;
+  --dim:#5c626b;
+  --lime:#ff4d3d;
+  --lime-d:#e63e2f;
+  --blue:#4a9eff;
+  --green:#2fbf87;
+  --red:#ff5f6d;
+  --amber:#e8a13c;
   --mono:'JetBrains Mono',monospace;
   --sans:'Inter',system-ui,sans-serif;
 }
@@ -254,10 +259,9 @@ video.preview{width:100%;border-radius:12px;margin-top:14px;border:1px solid var
 .sub-row .st{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:7px;flex-shrink:0;margin-top:1px}
 .st.pending{color:#ff9f45;background:rgba(255,159,69,.12)}
 /* approved and rejected used to render in the same red, which made a verdict
-   unreadable at a glance — approved takes the green that was already declared.
-   Tints are the CLEAN PRODUCT UI palette, not the older one further up. */
-.st.approved{color:var(--green);background:rgba(56,199,147,.13)}
-.st.rejected{color:var(--red);background:rgba(255,89,103,.12)}
+   unreadable at a glance — approved takes green. Tints track --green/--red. */
+.st.approved{color:var(--green);background:rgba(47,191,135,.13)}
+.st.rejected{color:var(--red);background:rgba(255,95,109,.12)}
 .st.disputed{color:#4aa8ff;background:rgba(74,168,255,.12)}
 .st.won{color:#000;background:var(--green)}
 .sub-row .info{flex:1;min-width:0}
@@ -265,7 +269,7 @@ video.preview{width:100%;border-radius:12px;margin-top:14px;border:1px solid var
 .sub-row .info .m{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:2px 10px}
 /* Why a proof was turned down is the whole reason someone opens this row —
    it doesn't belong trailing a mono meta string at the same weight as a filename. */
-.sub-row .why{margin-top:9px;font-size:12.5px;line-height:1.5;color:#e6b3b7;background:rgba(255,89,103,.07);border:1px solid rgba(255,89,103,.2);border-radius:9px;padding:8px 11px}
+.sub-row .why{margin-top:9px;font-size:12.5px;line-height:1.5;color:#e8b6bb;background:rgba(255,95,109,.07);border:1px solid rgba(255,95,109,.2);border-radius:9px;padding:8px 11px}
 .sub-row .why b{display:block;font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--red);margin-bottom:3px}
 .sub-row .acts{display:flex;gap:8px;flex-shrink:0;align-items:center}
 .sub-row .acts .btn{margin:0}
@@ -464,22 +468,29 @@ header{padding:0}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 
 /* ============================================================
-   CLEAN PRODUCT UI
+   DESIGN LAYER
+   One rule holds this together: the accent is money and nothing else.
+   It is allowed on the logo mark, on a reward, and on the single
+   primary action of a screen. Handles, tags, slot meters, the active
+   tab and step numbers are all neutral — when eight things shout,
+   nothing is emphasis, it is just noise.
    ============================================================ */
 :root{
-  --bg:#0a0a0d;
-  --surface:#131317;
-  --surface2:#19191f;
-  --line:#25252c;
-  --line2:#34343d;
-  --txt:#f5f5f7;
-  --muted:#8d8d98;
-  --lime:#ff4f45;
-  --lime-d:#e34239;
-  --warm:#f5f5f7;
-  --green:#38c793;
-  --red:#ff5967;
-  --blue:#68a7ff;
+  --bg:#0a0b0d;
+  --surface:#13151a;
+  --surface2:#1a1d23;
+  --line:#22252b;
+  --line2:#2e3239;
+  --txt:#edeff2;
+  --muted:#8a919b;
+  --dim:#5c626b;
+  --lime:#ff4d3d;
+  --lime-d:#e63e2f;
+  --warm:#edeff2;
+  --green:#2fbf87;
+  --red:#ff5f6d;
+  --amber:#e8a13c;
+  --blue:#4a9eff;
 }
 body{background:var(--bg)}
 header{
@@ -499,37 +510,11 @@ header{
 }
 main{max-width:960px;padding:0 18px 92px!important}
 
-.hero{
-  min-height:0;display:block;padding:32px 0 25px;
-  border-bottom:0;text-align:left
-}
-.hero::before{display:none}
-.hero-copy{max-width:620px}
-.hero .eyebrow{
-  display:flex;align-items:center;gap:8px;
-  margin-bottom:12px;color:var(--muted);
-  font-size:10px;letter-spacing:.08em
-}
-.eyebrow .live-dot{
-  width:6px;height:6px;background:var(--green);
-  box-shadow:none
-}
-.hero h1{
-  max-width:600px;margin:0 0 12px;
-  font-size:clamp(38px,7vw,54px);line-height:.98;
-  letter-spacing:-.055em
-}
-.hero h1 em{
-  color:var(--txt);-webkit-text-fill-color:var(--txt);
-  background:none;animation:none
-}
-.hero p{
-  max-width:480px;margin:0 0 20px;
-  color:var(--muted);font-size:15px;line-height:1.55
-}
-.hero .cta{display:flex;justify-content:flex-start;gap:9px}
-.hero .btn{min-height:42px;padding:10px 16px;font-size:13px}
-.hero-receipt{display:none!important}
+/* The hero is gone from the bounties view. This is a Mini App — by the time
+   anyone sees this screen they have already opened it from a chat, so a
+   headline selling them the idea costs a third of the first screen and
+   tells them nothing they did not know. Bounties start at the top instead. */
+.hero,.hero-receipt{display:none!important}
 
 .btn{
   min-height:40px;border-radius:10px;
@@ -548,70 +533,83 @@ main{max-width:960px;padding:0 18px 92px!important}
   transform:none!important;box-shadow:none!important
 }
 
+/* Four boxed vanity numbers became one line. "Total dares" and "Open dares"
+   were the same fact twice, and the balance is already in the header chip. */
 .strip{
-  grid-template-columns:repeat(4,1fr);
-  margin:4px 0 30px;border-radius:14px;
-  border-color:var(--line);background:var(--line);
-  box-shadow:none
+  display:block;grid-template-columns:none;gap:0;
+  margin:0 0 14px;padding:0;
+  background:none;border:0;border-radius:0;overflow:visible;
+  font-size:13px;color:var(--muted)
 }
-.strip .cell,.strip .cell:first-child{
-  background:var(--surface);padding:16px 17px
-}
-.strip .cell .v,.strip .cell .v.lime{
-  color:var(--txt);font-size:21px
-}
-.strip .cell .k{
-  margin-top:4px;font-size:9px;letter-spacing:.07em
-}
+.strip b{color:var(--txt);font-weight:600}
+.strip .sep{margin:0 7px;color:var(--line2)}
 
-.market-head{
-  display:flex;align-items:flex-end;justify-content:space-between;
-  margin:0 0 14px;gap:16px
-}
-.market-head h2{margin:4px 0 2px;font-size:22px}
-.market-head p{font-size:12px}
+.market-head{display:block;margin:18px 0 12px}
+.market-head .section-kicker,.market-head h2,.market-head p{display:none}
+.market-head .filter-row{width:100%}
 .section-kicker{
-  color:var(--muted);font:600 9px var(--mono);
+  color:var(--dim);font:600 9px var(--mono);
   letter-spacing:.09em;text-transform:uppercase
 }
+/* Segmented control: the two options sat stacked as a white slab over a text
+   link, which read as one button and one afterthought. They are equals. */
 .seg{
-  padding:3px;background:var(--surface);
-  border-color:var(--line);border-radius:10px
+  display:grid;grid-template-columns:1fr 1fr;width:100%;
+  padding:3px;gap:3px;background:var(--surface);
+  border:1px solid var(--line);border-radius:11px
 }
-.seg button{padding:7px 12px;font-size:12px;border-radius:7px}
-.seg button.active{background:var(--txt);color:#111;box-shadow:none}
+.seg button{
+  padding:9px 12px;font-size:13px;font-weight:600;border-radius:8px;
+  color:var(--muted);background:transparent;border:0;cursor:pointer;
+  transition:color .15s,background .15s
+}
+.seg button.active{background:var(--surface2);color:var(--txt);box-shadow:none}
 
-.grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+/* The card lost its full-width red button. The whole card already opened the
+   bounty, so the button was a second way to do the same thing — and repeated
+   down a list it turned the screen into a wall of identical CTAs. It is a
+   real button now for the keyboard, styled as a row. */
 .card{
-  min-height:0;padding:18px;border-radius:16px;
-  background:var(--surface);border-color:var(--line);
-  box-shadow:none;animation:none!important
+  display:block;width:100%;text-align:left;font:inherit;
+  min-height:0;padding:15px 16px;border-radius:14px;
+  background:var(--surface);border:1px solid var(--line);color:var(--txt);
+  box-shadow:none;animation:none!important;cursor:pointer;
+  transition:background .15s,border-color .15s,transform .08s
 }
 .card::before,.card[data-open]::after{display:none}
 .card[data-open]:hover{
-  transform:none;background:#16161b;
+  transform:none;background:var(--surface2);
   border-color:var(--line2);box-shadow:none
 }
-.c-top{margin-bottom:16px}
+.card[data-open]:active{transform:scale(.992)}
+.card:focus-visible{outline:2px solid var(--txt);outline-offset:2px}
+
+.c-head{display:flex;align-items:flex-start;gap:10px}
+.card h3{flex:1;min-width:0;font-size:16px;font-weight:650;line-height:1.3;letter-spacing:-.015em;margin:0}
+.c-meta{margin-top:5px;font-size:12.5px;color:var(--muted);display:flex;align-items:center;flex-wrap:wrap}
+.c-meta .sep{margin:0 6px;color:var(--line2)}
+.c-meta .soon{color:var(--amber)}
+.c-meta .code{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.c-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-top:13px}
+.c-pay b{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--lime)}
+.c-pay span{font-size:11px;color:var(--dim);margin-left:5px}
+/* Slots as pips, in plain white. A red progress meter competed with the
+   reward for the eye, and the reward is the only thing worth competing for. */
+.c-slot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.pips{display:flex;gap:3px}
+.pip{width:6px;height:6px;border-radius:50%;background:var(--line2)}
+.pip.on{background:var(--txt)}
+
 .c-id{font-size:10px}
-.tag{font-size:9px;padding:4px 8px}
-.tag.live{color:#ff766d;background:rgba(255,79,69,.1)}
-.tag.clock{background:var(--surface2)}
-.card-main{
-  display:flex;justify-content:space-between;
-  align-items:flex-start;gap:14px
-}
-.card h3{font-size:18px;line-height:1.25}
-.card .reward,.d-reward{
-  color:var(--txt);font-size:25px
-}
-.card[data-open]:hover .reward{text-shadow:none}
-.card .reward small{font-size:8px}
-.slots{margin:22px 0 12px}
-.slots .track{background:#222229}
-.slots .seg.on{background:var(--lime);box-shadow:none}
-.card .act{padding-top:12px}
-.card .act .btn{min-height:40px}
+.tag{font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px}
+.tag.live{display:none}
+.tag.hot{color:var(--amber);background:rgba(232,161,60,.12)}
+.tag.full{color:var(--muted);background:var(--surface2)}
+.tag.clock{color:var(--muted);background:var(--surface2)}
+.tag.clock.soon{color:var(--amber);background:rgba(232,161,60,.12)}
+.slots .track{background:var(--surface2)}
+.slots .seg.on{background:var(--txt);box-shadow:none}
 .empty-state{
   grid-column:1/-1;text-align:center;
   padding:38px 20px;border-radius:14px;
@@ -620,8 +618,12 @@ main{max-width:960px;padding:0 18px 92px!important}
 .empty-state strong{display:block;margin-bottom:5px;color:var(--txt)}
 .empty-state span{font-size:13px;color:var(--muted)}
 
-.page-h{margin:30px 0 20px}
-.page-h h2{font-size:27px}
+/* Screen titles were set at landing-page scale — 27px of headline plus a
+   paragraph restating the tab you just tapped. A title is enough. */
+.page-h{margin:20px 0 16px}
+.page-h h2{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0}
+.page-h p{display:none}
+.page-h .section-kicker{margin-bottom:3px}
 .create-form{
   max-width:620px;margin:0 auto;padding:0;
   background:transparent;border:0;border-radius:0
@@ -636,28 +638,44 @@ main{max-width:960px;padding:0 18px 92px!important}
 .create-form #create-btn{min-height:46px}
 
 .how-intro{
-  display:block;margin:32px 0 20px;padding:0;
+  display:block;margin:20px 0 18px;padding:0;
   background:transparent;border:0
 }
-.how-intro h2{
-  max-width:560px;margin:6px 0 10px;
-  font-size:clamp(32px,6vw,46px)
+.how-intro h2{max-width:560px;margin:4px 0 8px;font-size:22px;letter-spacing:-.025em;line-height:1.2}
+.how-intro p{max-width:620px;font-size:14px;line-height:1.6;color:var(--muted)}
+/* Four tall empty boxes became four rows on a rail. The number is a marker,
+   not a badge — it does not need the accent to be understood as "step 2". */
+.steps{display:block;grid-template-columns:none;gap:0}
+.step{
+  position:relative;display:grid;grid-template-columns:26px 1fr;gap:13px;
+  padding:0 0 20px 0;border:0;border-radius:0;background:transparent
 }
-.how-intro p{max-width:620px;font-size:14px}
-.steps{grid-template-columns:repeat(4,1fr);gap:10px}
-.step{padding:18px;border-radius:14px;background:var(--surface)}
+.step:last-child{padding-bottom:0}
 .step::after{display:none}
-.step .num{
-  width:28px;height:28px;display:grid;place-items:center;
-  margin:0 0 24px;border-radius:8px;
-  background:rgba(255,79,69,.1);color:var(--lime)
+.step::before{
+  content:"";position:absolute;left:12.5px;top:26px;bottom:0;width:1px;
+  background:var(--line);display:block
 }
+.step:last-child::before{display:none}
+.step .num{
+  position:relative;z-index:1;
+  width:26px;height:26px;display:grid;place-items:center;margin:0;
+  border-radius:50%;background:var(--surface2);border:1px solid var(--line);
+  color:var(--muted);font:600 12px var(--mono)
+}
+/* The number takes column one; the heading and the copy both belong in
+   column two, or the paragraph lands in a 26px gutter one word per line. */
+.step h4,.step p{grid-column:2}
+.step h4{margin:3px 0 4px;font-size:15px;font-weight:650}
+.step p{font-size:13.5px;line-height:1.55;color:var(--muted)}
 
 .p-id{
   border-radius:16px;background:var(--surface);
   border-color:var(--line)
 }
-.p-av{border-radius:12px;background:var(--lime)}
+/* Neutral monogram: on this screen the accent belongs to the deposit button.
+   An avatar competing with it means neither reads as the thing to tap. */
+.p-av{border-radius:14px;background:var(--surface2);border-color:var(--line);color:var(--txt)}
 .p-id .who .b,.dep-bal .v{color:var(--txt)}
 .p-stats{border-radius:13px}
 .p-stats .cell{background:var(--surface)}
@@ -677,6 +695,31 @@ main{max-width:960px;padding:0 18px 92px!important}
 .modal-x{background:var(--surface2)}
 .d-box,.dep-bal,.dep-cur,.dep-status{background:var(--bg)}
 
+/* The rest of what was wearing the accent and should not be. A @handle is a
+   link, a section label is furniture, and "Step 1 · Amount" shouting in red
+   made an optional field look like a problem. */
+.plink{color:var(--txt);font-weight:600;border-bottom:1px dashed var(--line2)}
+.plink:hover{border-bottom-color:var(--muted)}
+/* An empty upload target pulsing red read as a validation error before anyone
+   had done anything wrong. Calm grey, and green once a clip is actually on it. */
+.drop{border-color:var(--line2);animation:none!important}
+.drop:hover,.drop.over{border-color:var(--muted);background:var(--surface2)}
+.drop.has{border-color:var(--green);background:rgba(47,191,135,.05)}
+/* Opening the chain picker outlined the whole panel in red, which on a payment
+   sheet looks like something went wrong rather than like a menu. */
+.dep-pick.open .dep-cur,.dep-opts{border-color:var(--line2)}
+.dep-opts button.on .dep-name{color:var(--txt)}
+.dep-chips button:hover{border-color:var(--muted)}
+/* Neutral like the profile monogram, for the same reason. */
+.pavatar{background:var(--surface2);color:var(--txt);border:1px solid var(--line)}
+.subnav button.active{background:var(--surface2);color:var(--txt);border-color:var(--line2)}
+.d-box .lbl{color:var(--dim);font-size:10px}
+.dep-hist .row .amt{color:var(--txt)}
+.escrow .ln.tot b{color:var(--txt)}
+/* Money you can win keeps the accent; money you already have is just a fact. */
+.d-reward{color:var(--lime)}
+.card .reward,.p-id .who .b,.lbrow .earn{color:var(--txt)}
+
 .tabbar{
   left:0;right:0;bottom:0;transform:none;
   width:100%;max-width:none;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));
@@ -687,43 +730,28 @@ main{max-width:960px;padding:0 18px 92px!important}
   max-width:120px;min-height:52px;margin:auto;
   border-radius:10px
 }
+/* The active tab is white, not red. Where you are is orientation, not an
+   offer — and it was one more thing wearing the accent. */
 .tabbar button.active{
-  color:var(--lime);background:transparent
+  color:var(--txt);background:transparent
 }
+.tabbar button.active::before{background:var(--lime);box-shadow:none}
 footer{display:none}
 #toast{
   bottom:78px!important;max-width:calc(100vw - 28px);
   text-align:center
 }
 
-.hero .eyebrow,.hero h1,.hero p,.hero .cta,
-.strip .cell,.view.active,.lbrow,.sub-row{
-  animation:none!important
-}
+.view.active,.lbrow,.sub-row,.p-stats .cell{animation:none!important}
+.pip{background:#3a3f47}
 
 @media(max-width:680px){
   main{padding-left:14px!important;padding-right:14px!important}
   .head-inner{padding:10px 14px}
-  .hero{padding:25px 0 20px}
-  .hero h1{font-size:39px}
-  .hero p{font-size:14px}
-  .hero .cta{display:grid;grid-template-columns:1fr 1fr}
-  .strip{grid-template-columns:repeat(2,1fr);margin-bottom:26px}
-  .strip .cell{padding:14px}
-  .market-head{align-items:flex-start;gap:12px}
-  .market-head .filter-row{width:auto}
-  .market-head .seg{display:flex;width:auto}
   .grid{grid-template-columns:1fr}
-  .steps{grid-template-columns:1fr 1fr}
 }
 @media(max-width:430px){
   .brand .nm{font-size:17px}
-  .hero h1{font-size:36px}
-  .hero .cta{grid-template-columns:1fr}
-  .market-head{display:block}
-  .market-head .filter-row{margin-top:12px;width:100%}
-  .market-head .seg{display:grid;width:100%}
-  .steps{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -776,24 +804,9 @@ footer{display:none}
 <main>
   <!-- ===== BOUNTIES ===== -->
   <section class="view active" data-view="bounties">
-    <div class="hero">
-      <div class="hero-copy">
-        <div class="eyebrow"><span class="live-dot"></span>Live bounties, funded up front</div>
-        <h1>Do the dare.<br><em>Get paid.</em></h1>
-        <p>Choose a challenge, upload the proof and claim the reward.</p>
-        <div class="cta">
-          <button class="btn btn-lime" id="hero-browse">Browse open bounties</button>
-          <button class="btn btn-out" id="hero-create">Post a dare</button>
-        </div>
-      </div>
-    </div>
-    <div class="strip" id="strip"></div>
+    <!-- No hero: this is a Mini App, the person is already inside it. The
+         filter and the bounties themselves start at the top of the screen. -->
     <div class="market-head">
-      <div>
-        <div class="section-kicker">Bounty board</div>
-        <h2>Ready when you are</h2>
-        <p>Open a bounty to check the rules and submit your proof.</p>
-      </div>
       <div class="filter-row">
         <div class="seg" id="ch-filter">
           <button class="active" data-filter="open">Open now</button>
@@ -801,6 +814,7 @@ footer{display:none}
         </div>
       </div>
     </div>
+    <div class="strip" id="strip"></div>
     <div class="grid" id="grid"></div>
   </section>
 
@@ -948,8 +962,8 @@ const tabs=document.querySelectorAll('#nav button'),views=document.querySelector
 function go(t){ document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t)); window.scrollTo({top:0,behavior:'smooth'}); haptic('light');
   if(t==='bounties')loadChallenges(); if(t==='board')loadBoard(); if(t==='admin')loadQueue(); if(t==='profile')loadProfile(); }
 tabs.forEach(b=>b.onclick=()=>go(b.dataset.tab));
-$('#hero-browse').onclick=()=>$('#grid').scrollIntoView({behavior:'smooth',block:'start'});
-$('#hero-create').onclick=()=>go('create');
+// The hero's two buttons are gone with it — "browse" only scrolled to a grid
+// that is now the first thing on screen, and "post a dare" is the Create tab.
 
 // open / history filter
 let chFilter='open';
@@ -969,34 +983,41 @@ async function loadChallenges(){
     grid.dataset.sig=sig;
     const open=challenges.filter(isOpen);
     const liveTotal=open.reduce((a,c)=>a+c.reward*c.maxWinners,0);
-    $('#strip').innerHTML=`
-      <div class="cell"><div class="v lime">${money(liveTotal)}</div><div class="k">Bounties live</div></div>
-      <div class="cell"><div class="v">${open.length}</div><div class="k">Open dares</div></div>
-      <div class="cell"><div class="v">${challenges.length}</div><div class="k">Total dares</div></div>
-      <div class="cell"><div class="v">${ME?money(ME.credits):'—'}</div><div class="k">Your balance</div></div>`;
+    // One line instead of four boxed numbers: "open dares" and "total dares"
+    // were the same fact twice, and the balance already sits in the header.
+    $('#strip').innerHTML = open.length
+      ? `<b>${money(liveTotal)}</b> up for grabs<span class="sep">·</span><b>${open.length}</b> open ${open.length===1?'bounty':'bounties'}`
+      : `<b>${challenges.length}</b> ${challenges.length===1?'bounty':'bounties'} posted so far`;
     // filter: open = still claimable, closed/history = filled or expired
     const shown=challenges.filter(c=> chFilter==='open' ? isOpen(c) : !isOpen(c));
     if(!shown.length){
       $('#grid').innerHTML=`<div class="empty-state"><strong>${chFilter==='open'?'No open bounties right now.':'No completed bounties yet.'}</strong><span>${chFilter==='open'?'Post a challenge or check back soon.':'Finished and expired bounties will appear here.'}</span></div>`;
       grid.dataset.loaded="1"; return;
     }
+    // Title first, then who and when, then the money. The reward is the only
+    // thing painted in the accent — everything else on the card is neutral.
     $('#grid').innerHTML=shown.map(b=>{
-      const tag=b.full?'full':(b.subs>3?'hot':'live');
-      const segs=Array.from({length:b.maxWinners},(_,i)=>`<div class="seg ${i<b.slots[0]?'on':''}"></div>`).join('');
-      return `<div class="card" data-open="${b.id}" style="cursor:pointer">
-        <div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${b.full?'':deadlineTag(b.expiresAt)}<span class="tag ${tag}"><span class="d"></span>${b.full?'filled':tag}</span></span></div>
-        <div class="card-main">
-          <div class="card-copy"><h3>${esc(b.title)}</h3><div class="creator">by <span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span></div></div>
-          <div class="reward">${money(b.reward)}<small>per winner</small></div>
+      const ms=b.expiresAt?b.expiresAt-Date.now():0;
+      const when=b.full?'no slots left'
+        :!b.expiresAt?''
+        :ms<=0?'<span class="soon">expired</span>'
+        :ms<24*3600e3?`<span class="soon">${leftText(ms)}</span>`:leftText(ms);
+      const badge=b.full?'<span class="tag full">filled</span>'
+        :(b.subs>3?'<span class="tag hot">hot</span>':'');
+      const pips=Array.from({length:b.maxWinners},(_,i)=>`<span class="pip ${i<b.slots[0]?'on':''}"></span>`).join('');
+      return `<div class="card" data-open="${b.id}" role="button" tabindex="0">
+        <div class="c-head"><h3>${esc(b.title)}</h3>${badge}</div>
+        <div class="c-meta"><span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span>${when?`<span class="sep">·</span>${when}`:''}<span class="sep">·</span><span class="code">${b.code}</span></div>
+        <div class="c-foot">
+          <div class="c-pay"><b>${money(b.reward)}</b><span>per winner</span></div>
+          <div class="c-slot"><span class="pips">${pips}</span><span>${b.slots[0]}/${b.maxWinners} slots</span></div>
         </div>
-        <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div>
-        <div class="act"><button class="btn ${b.full?'btn-out':'btn-lime'}" style="width:100%;justify-content:center">${b.full?'View result':'View & submit proof'}</button></div>
       </div>`;
     }).join('');
     $('#grid').querySelectorAll('[data-open]').forEach(c=>{
       c.onclick=(e)=>{ if(e.target.closest('[data-player]')) return; haptic('light'); openDetail(c.dataset.open); };
-      c.addEventListener('mousemove',e=>{ const r=c.getBoundingClientRect();
-        c.style.setProperty('--mx',(e.clientX-r.left)+'px'); c.style.setProperty('--my',(e.clientY-r.top)+'px'); });
+      // role="button" has to answer the keyboard the way a real button does.
+      c.onkeydown=(e)=>{ if(e.key!=='Enter'&&e.key!==' ')return; e.preventDefault(); haptic('light'); openDetail(c.dataset.open); };
     });
     grid.dataset.loaded="1";
     countUp();
@@ -1024,7 +1045,7 @@ async function openDetail(id){
     if(c.full) action=`<div class="d-box" style="color:var(--red)">Slots are filled — this dare is closed.</div>`;
     else if(!isOpen(c)) action=`<div class="d-box" style="color:var(--red)">This dare expired — the bounty went back to its creator.</div>`;
     else if(ME&&ME.username===c.creator) action=`<div class="d-box">This is your dare — you can't complete your own bounty.</div>`;
-    else if(c.mySubmission) action=`<div class="d-box" style="color:var(--lime)">✓ You already submitted to this dare. Check Profile for status.</div>`;
+    else if(c.mySubmission) action=`<div class="d-box" style="color:var(--green)">✓ You already submitted to this dare. Check Profile for status.</div>`;
     else action=`
       <div class="d-box"><div class="lbl">Submit your proof</div>
         <div class="drop" id="drop"><div class="ic"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" style="margin:0 auto;opacity:.6"><rect x="2.5" y="6" width="13" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div><div class="t">Tap to choose your video</div><div class="s">or drag &amp; drop · max 50MB</div></div>
@@ -1185,13 +1206,14 @@ async function loadProfile(){
     $('#p-subs').innerHTML=a.submissions.length?a.submissions.map(s=>{
       const st=s.won?'won':s.status;
       const lab=s.won?'WON':(s.status==='disputed'?'under review':s.status);
-      // Appeal is the consequential, time-limited action, so it leads.
+      // Appeal leads the row, but outlined: the deposit button is this screen's
+      // one accented action, and two of them would cancel each other out.
       return `<div class="sub-row is-${st}"><span class="st ${st}">${lab}</span>
         <div class="info"><div class="t">${esc(s.title||s.code)}</div>
           <div class="m"><span>${esc(s.code)}</span><span>${esc(s.file)}</span></div>
           ${s.reason?`<div class="why"><b>${s.status==='rejected'?'Why it was turned down':'Reviewer note'}</b>${esc(s.reason)}</div>`:''}</div>
         <div class="acts">
-        ${s.canAppeal?`<button class="btn btn-lime btn-sm" data-appeal="${s.id}">Appeal</button>`:''}
+        ${s.canAppeal?`<button class="btn btn-out btn-sm" data-appeal="${s.id}">Appeal</button>`:''}
         ${s.won?`<button class="btn btn-out btn-sm" data-sharewin="${esc(s.code)}">𝕏 Share</button>`:''}
         ${s.video?`<button class="btn btn-out btn-sm" onclick="window.open('/uploads/${encodeURIComponent(s.video)}','_blank')">video</button>`:''}</div></div>`;
     }).join(''):'<div class="p-empty"><div class="big">No proofs yet</div>Take a dare, film it, and every verdict lands here.</div>';
