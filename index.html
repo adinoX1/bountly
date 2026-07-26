@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#09090c">
+<meta name="description" content="Bountly is a Telegram mini app where real challenges meet real rewards. Do the dare, submit proof, get paid.">
 <title>Bountly</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
@@ -167,9 +169,25 @@ footer a{color:var(--lime);text-decoration:none}
 .dep-bal{display:flex;align-items:baseline;justify-content:space-between;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
 .dep-bal .k{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .dep-bal .v{font-size:26px;font-weight:800;color:var(--lime);letter-spacing:-.02em}
-.dep-seg{display:flex;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:5px;margin-bottom:16px}
-.dep-seg button{flex:1;padding:10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-family:var(--mono);font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
-.dep-seg button.on{background:var(--lime);color:#000}
+/* One panel rather than two segments side by side: collapsed it states what
+   you are about to pay in, and only opens into the choice if you ask for it.
+   The list is absolutely positioned so opening it doesn't shove the amount
+   field down the sheet under someone's thumb. */
+.dep-pick{position:relative;margin-bottom:16px}
+.dep-cur{width:100%;display:flex;align-items:center;gap:11px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--txt);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s}
+.dep-cur:hover{border-color:var(--line2)}
+.dep-cur[disabled]{cursor:default}
+.dep-pick.open .dep-cur{border-color:var(--lime);border-radius:12px 12px 0 0}
+.dep-ico{width:26px;height:26px;flex-shrink:0;display:block}
+.dep-name{font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.02em}
+.dep-net{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto;padding-left:8px}
+.dep-chev{flex-shrink:0;color:var(--muted);transition:transform .2s}
+.dep-pick.open .dep-chev{transform:rotate(180deg)}
+.dep-opts{display:none;position:absolute;left:0;right:0;top:100%;z-index:5;background:var(--bg);border:1px solid var(--lime);border-top:0;border-radius:0 0 12px 12px;overflow:hidden}
+.dep-pick.open .dep-opts{display:block}
+.dep-opts button{width:100%;display:flex;align-items:center;gap:11px;padding:12px 14px;border:0;border-top:1px solid var(--line);background:transparent;color:var(--txt);font:inherit;text-align:left;cursor:pointer}
+.dep-opts button:hover{background:var(--surface)}
+.dep-opts button.on .dep-name{color:var(--lime)}
 .dep-amt{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 12px;margin-top:6px}
 .dep-amt input{flex:1;border:0;background:transparent;color:var(--txt);font-size:16px;font-weight:700;padding:8px 0;outline:none}
 .dep-amt .cur{font-family:var(--mono);font-size:13px;color:var(--muted)}
@@ -205,16 +223,55 @@ video.preview{width:100%;border-radius:12px;margin-top:14px;border:1px solid var
 .upbar .fill{height:100%;width:0;background:var(--lime);transition:width .2s}
 
 /* profile bits */
-.sub-row{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
-.sub-row .st{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:7px;flex-shrink:0}
+/* The balance is the number this tab gets opened for. It used to sit as one
+   of four equal cells next to "posted dares"; here it leads, with the deposit
+   action beside it and the counts demoted underneath. */
+.p-id{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px}
+/* White on the mark, not lime on lime: the CLEAN PRODUCT UI block below repaints
+   this background to solid var(--lime), and a lime initial on it disappears. */
+.p-av{width:52px;height:52px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-family:var(--mono);font-size:20px;font-weight:700;color:#fff;background:var(--lime);border:1px solid rgba(255,79,69,.3)}
+.p-id .who{min-width:0}
+.p-id .who .n{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.p-id .who .b{font-size:32px;font-weight:800;letter-spacing:-.03em;color:var(--lime);line-height:1.15;margin-top:2px}
+.p-id .who .b small{display:block;font-family:var(--mono);font-size:10px;font-weight:500;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-top:3px}
+.p-id .act{margin-left:auto}
+.p-id .act .btn{margin:0}
+@media(max-width:520px){.p-id .act{margin-left:0;width:100%}.p-id .act .btn{width:100%;justify-content:center}}
+.p-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:14px 0 34px}
+.p-stats .cell{background:var(--bg);padding:16px 18px;transition:background .2s;animation:fadeUp .4s both}
+.p-stats .cell:hover{background:var(--surface)}
+.p-stats .cell .v{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.p-stats .cell .k{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:5px}
+/* A proof row leads with its verdict — a colour rail down the left edge, so a
+   list of them is scannable without reading a word. */
+.sub-row{position:relative;display:flex;align-items:flex-start;gap:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px 14px 19px;margin-bottom:10px;overflow:hidden}
+.sub-row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line2)}
+.sub-row.is-won::before{background:var(--green)}
+.sub-row.is-approved::before{background:var(--green)}
+.sub-row.is-rejected::before{background:var(--red)}
+.sub-row.is-pending::before{background:#ff9f45}
+.sub-row.is-disputed::before{background:#4aa8ff}
+.sub-row .st{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:7px;flex-shrink:0;margin-top:1px}
 .st.pending{color:#ff9f45;background:rgba(255,159,69,.12)}
-.st.approved{color:var(--lime);background:rgba(244,33,46,.12)}
-.st.rejected{color:var(--red);background:rgba(244,33,46,.12)}
+/* approved and rejected used to render in the same red, which made a verdict
+   unreadable at a glance — approved takes the green that was already declared.
+   Tints are the CLEAN PRODUCT UI palette, not the older one further up. */
+.st.approved{color:var(--green);background:rgba(56,199,147,.13)}
+.st.rejected{color:var(--red);background:rgba(255,89,103,.12)}
 .st.disputed{color:#4aa8ff;background:rgba(74,168,255,.12)}
-.st.won{color:#000;background:var(--lime)}
+.st.won{color:#000;background:var(--green)}
 .sub-row .info{flex:1;min-width:0}
 .sub-row .info .t{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sub-row .info .m{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
+.sub-row .info .m{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:2px 10px}
+/* Why a proof was turned down is the whole reason someone opens this row —
+   it doesn't belong trailing a mono meta string at the same weight as a filename. */
+.sub-row .why{margin-top:9px;font-size:12.5px;line-height:1.5;color:#e6b3b7;background:rgba(255,89,103,.07);border:1px solid rgba(255,89,103,.2);border-radius:9px;padding:8px 11px}
+.sub-row .why b{display:block;font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--red);margin-bottom:3px}
+.sub-row .acts{display:flex;gap:8px;flex-shrink:0;align-items:center}
+.sub-row .acts .btn{margin:0}
+@media(max-width:560px){.sub-row{flex-wrap:wrap}.sub-row .acts{width:100%;justify-content:flex-end;margin-top:2px}}
+.p-empty{grid-column:1/-1;text-align:center;padding:34px 22px;border:1px dashed var(--line2);border-radius:14px;color:var(--muted);font-size:13px;line-height:1.6}
+.p-empty .big{font-size:15px;font-weight:600;color:var(--txt);margin-bottom:4px}
 
 /* ============================================================
    ✨ VISUAL POLISH — animations, glow, micro-interactions
@@ -405,6 +462,269 @@ header{padding:0}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:2px solid var(--bg)}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* ============================================================
+   CLEAN PRODUCT UI
+   ============================================================ */
+:root{
+  --bg:#0a0a0d;
+  --surface:#131317;
+  --surface2:#19191f;
+  --line:#25252c;
+  --line2:#34343d;
+  --txt:#f5f5f7;
+  --muted:#8d8d98;
+  --lime:#ff4f45;
+  --lime-d:#e34239;
+  --warm:#f5f5f7;
+  --green:#38c793;
+  --red:#ff5967;
+  --blue:#68a7ff;
+}
+body{background:var(--bg)}
+header{
+  background:rgba(10,10,13,.94);
+  border-color:var(--line);
+  box-shadow:none
+}
+.head-inner{max-width:960px;padding:11px 18px}
+.brand .mark{
+  width:34px;height:34px;border-radius:10px;
+  background:var(--lime);box-shadow:none
+}
+.brand .nm{font-size:18px;color:var(--txt)}
+#me-chip{
+  background:var(--surface);border-color:var(--line);
+  color:var(--txt)!important;padding:6px 10px
+}
+main{max-width:960px;padding:0 18px 92px!important}
+
+.hero{
+  min-height:0;display:block;padding:32px 0 25px;
+  border-bottom:0;text-align:left
+}
+.hero::before{display:none}
+.hero-copy{max-width:620px}
+.hero .eyebrow{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:12px;color:var(--muted);
+  font-size:10px;letter-spacing:.08em
+}
+.eyebrow .live-dot{
+  width:6px;height:6px;background:var(--green);
+  box-shadow:none
+}
+.hero h1{
+  max-width:600px;margin:0 0 12px;
+  font-size:clamp(38px,7vw,54px);line-height:.98;
+  letter-spacing:-.055em
+}
+.hero h1 em{
+  color:var(--txt);-webkit-text-fill-color:var(--txt);
+  background:none;animation:none
+}
+.hero p{
+  max-width:480px;margin:0 0 20px;
+  color:var(--muted);font-size:15px;line-height:1.55
+}
+.hero .cta{display:flex;justify-content:flex-start;gap:9px}
+.hero .btn{min-height:42px;padding:10px 16px;font-size:13px}
+.hero-receipt{display:none!important}
+
+.btn{
+  min-height:40px;border-radius:10px;
+  transition:background .15s,border-color .15s,transform .1s
+}
+.btn-lime{
+  background:var(--lime);border-color:var(--lime);
+  color:#fff;box-shadow:none
+}
+.btn-lime:hover{background:#ff6258;box-shadow:none;transform:none}
+.btn-lime::after{display:none}
+.btn-out{background:transparent;border-color:var(--line2)}
+.btn-out:hover{background:var(--surface2);transform:none}
+.btn:disabled{
+  cursor:not-allowed;opacity:.48;
+  transform:none!important;box-shadow:none!important
+}
+
+.strip{
+  grid-template-columns:repeat(4,1fr);
+  margin:4px 0 30px;border-radius:14px;
+  border-color:var(--line);background:var(--line);
+  box-shadow:none
+}
+.strip .cell,.strip .cell:first-child{
+  background:var(--surface);padding:16px 17px
+}
+.strip .cell .v,.strip .cell .v.lime{
+  color:var(--txt);font-size:21px
+}
+.strip .cell .k{
+  margin-top:4px;font-size:9px;letter-spacing:.07em
+}
+
+.market-head{
+  display:flex;align-items:flex-end;justify-content:space-between;
+  margin:0 0 14px;gap:16px
+}
+.market-head h2{margin:4px 0 2px;font-size:22px}
+.market-head p{font-size:12px}
+.section-kicker{
+  color:var(--muted);font:600 9px var(--mono);
+  letter-spacing:.09em;text-transform:uppercase
+}
+.seg{
+  padding:3px;background:var(--surface);
+  border-color:var(--line);border-radius:10px
+}
+.seg button{padding:7px 12px;font-size:12px;border-radius:7px}
+.seg button.active{background:var(--txt);color:#111;box-shadow:none}
+
+.grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.card{
+  min-height:0;padding:18px;border-radius:16px;
+  background:var(--surface);border-color:var(--line);
+  box-shadow:none;animation:none!important
+}
+.card::before,.card[data-open]::after{display:none}
+.card[data-open]:hover{
+  transform:none;background:#16161b;
+  border-color:var(--line2);box-shadow:none
+}
+.c-top{margin-bottom:16px}
+.c-id{font-size:10px}
+.tag{font-size:9px;padding:4px 8px}
+.tag.live{color:#ff766d;background:rgba(255,79,69,.1)}
+.tag.clock{background:var(--surface2)}
+.card-main{
+  display:flex;justify-content:space-between;
+  align-items:flex-start;gap:14px
+}
+.card h3{font-size:18px;line-height:1.25}
+.card .reward,.d-reward{
+  color:var(--txt);font-size:25px
+}
+.card[data-open]:hover .reward{text-shadow:none}
+.card .reward small{font-size:8px}
+.slots{margin:22px 0 12px}
+.slots .track{background:#222229}
+.slots .seg.on{background:var(--lime);box-shadow:none}
+.card .act{padding-top:12px}
+.card .act .btn{min-height:40px}
+.empty-state{
+  grid-column:1/-1;text-align:center;
+  padding:38px 20px;border-radius:14px;
+  background:var(--surface);border:1px dashed var(--line2)
+}
+.empty-state strong{display:block;margin-bottom:5px;color:var(--txt)}
+.empty-state span{font-size:13px;color:var(--muted)}
+
+.page-h{margin:30px 0 20px}
+.page-h h2{font-size:27px}
+.create-form{
+  max-width:620px;margin:0 auto;padding:0;
+  background:transparent;border:0;border-radius:0
+}
+.create-form input,.create-form textarea,.create-form select{
+  background:var(--surface);border-color:var(--line);
+  border-radius:10px
+}
+.create-form .escrow{
+  background:var(--surface);border-color:var(--line)
+}
+.create-form #create-btn{min-height:46px}
+
+.how-intro{
+  display:block;margin:32px 0 20px;padding:0;
+  background:transparent;border:0
+}
+.how-intro h2{
+  max-width:560px;margin:6px 0 10px;
+  font-size:clamp(32px,6vw,46px)
+}
+.how-intro p{max-width:620px;font-size:14px}
+.steps{grid-template-columns:repeat(4,1fr);gap:10px}
+.step{padding:18px;border-radius:14px;background:var(--surface)}
+.step::after{display:none}
+.step .num{
+  width:28px;height:28px;display:grid;place-items:center;
+  margin:0 0 24px;border-radius:8px;
+  background:rgba(255,79,69,.1);color:var(--lime)
+}
+
+.p-id{
+  border-radius:16px;background:var(--surface);
+  border-color:var(--line)
+}
+.p-av{border-radius:12px;background:var(--lime)}
+.p-id .who .b,.dep-bal .v{color:var(--txt)}
+.p-stats{border-radius:13px}
+.p-stats .cell{background:var(--surface)}
+.sub-row{background:var(--surface);border-color:var(--line)}
+.dep-status.done{color:var(--green)}
+.dep-status.done .dot{background:var(--green)}
+.d-winners .w{
+  color:var(--green);background:rgba(56,199,147,.1)
+}
+.rank.r1{background:#efc465}
+
+.modal-overlay{background:rgba(0,0,0,.75);backdrop-filter:blur(7px)}
+.modal{
+  padding:23px;border-radius:18px;
+  background:var(--surface);border-color:var(--line2)
+}
+.modal-x{background:var(--surface2)}
+.d-box,.dep-bal,.dep-cur,.dep-status{background:var(--bg)}
+
+.tabbar{
+  left:0;right:0;bottom:0;transform:none;
+  width:100%;max-width:none;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));
+  background:rgba(19,19,23,.96);border:0;border-top:1px solid var(--line);
+  border-radius:0;box-shadow:none
+}
+.tabbar button{
+  max-width:120px;min-height:52px;margin:auto;
+  border-radius:10px
+}
+.tabbar button.active{
+  color:var(--lime);background:transparent
+}
+footer{display:none}
+#toast{
+  bottom:78px!important;max-width:calc(100vw - 28px);
+  text-align:center
+}
+
+.hero .eyebrow,.hero h1,.hero p,.hero .cta,
+.strip .cell,.view.active,.lbrow,.sub-row{
+  animation:none!important
+}
+
+@media(max-width:680px){
+  main{padding-left:14px!important;padding-right:14px!important}
+  .head-inner{padding:10px 14px}
+  .hero{padding:25px 0 20px}
+  .hero h1{font-size:39px}
+  .hero p{font-size:14px}
+  .hero .cta{display:grid;grid-template-columns:1fr 1fr}
+  .strip{grid-template-columns:repeat(2,1fr);margin-bottom:26px}
+  .strip .cell{padding:14px}
+  .market-head{align-items:flex-start;gap:12px}
+  .market-head .filter-row{width:auto}
+  .market-head .seg{display:flex;width:auto}
+  .grid{grid-template-columns:1fr}
+  .steps{grid-template-columns:1fr 1fr}
+}
+@media(max-width:430px){
+  .brand .nm{font-size:17px}
+  .hero h1{font-size:36px}
+  .hero .cta{grid-template-columns:1fr}
+  .market-head{display:block}
+  .market-head .filter-row{margin-top:12px;width:100%}
+  .market-head .seg{display:grid;width:100%}
+  .steps{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
@@ -457,18 +777,28 @@ header{padding:0}
   <!-- ===== BOUNTIES ===== -->
   <section class="view active" data-view="bounties">
     <div class="hero">
-      <h1>Film it. Prove it.<br><em>Win the bounty.</em></h1>
-      <p>Post a challenge, set a bounty. First valid proof takes the cash.</p>
-      <div class="cta">
-        <button class="btn btn-lime" id="hero-browse">Browse bounties</button>
-        <button class="btn btn-out" id="hero-create">Post a dare</button>
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="live-dot"></span>Live bounties, funded up front</div>
+        <h1>Do the dare.<br><em>Get paid.</em></h1>
+        <p>Choose a challenge, upload the proof and claim the reward.</p>
+        <div class="cta">
+          <button class="btn btn-lime" id="hero-browse">Browse open bounties</button>
+          <button class="btn btn-out" id="hero-create">Post a dare</button>
+        </div>
       </div>
     </div>
     <div class="strip" id="strip"></div>
-    <div class="filter-row">
-      <div class="seg" id="ch-filter">
-        <button class="active" data-filter="open">Open</button>
-        <button data-filter="closed">History</button>
+    <div class="market-head">
+      <div>
+        <div class="section-kicker">Bounty board</div>
+        <h2>Ready when you are</h2>
+        <p>Open a bounty to check the rules and submit your proof.</p>
+      </div>
+      <div class="filter-row">
+        <div class="seg" id="ch-filter">
+          <button class="active" data-filter="open">Open now</button>
+          <button data-filter="closed">History</button>
+        </div>
       </div>
     </div>
     <div class="grid" id="grid"></div>
@@ -476,8 +806,8 @@ header{padding:0}
 
   <!-- ===== CREATE ===== -->
   <section class="view" data-view="create">
-    <div class="page-h"><h2>Post a dare</h2><p>Set the rules, the reward and how many can win. Funds lock in escrow.</p></div>
-    <div class="form">
+    <div class="page-h"><div class="section-kicker">Create a bounty</div><h2>Make it worth doing.</h2><p>Write clear rules, choose the reward and lock the full bounty before it goes live.</p></div>
+    <div class="form form-block create-form">
       <div><label>Challenge title</label><input id="f-t" placeholder="e.g. Dance 30 seconds on the street"></div>
       <div><label>Description</label><textarea id="f-d" rows="3" placeholder="What exactly should the hunter do?"></textarea></div>
       <div><label>Rules of proof</label><textarea id="f-r" rows="2" placeholder="One take, say the code, no cuts…"></textarea></div>
@@ -501,7 +831,10 @@ header{padding:0}
 
   <!-- ===== HOW ===== -->
   <section class="view" data-view="how">
-    <div class="page-h"><h2>How it works</h2><p>Dares with real rewards on the line.</p></div>
+    <div class="how-intro">
+      <div><div class="section-kicker">Three parties. One clear outcome.</div><h2>A fair shot at every bounty.</h2></div>
+      <p>Creators fund the reward first. Hunters submit time-stamped video proof. Reviewers check the same written rules for everyone.</p>
+    </div>
     <div class="steps">
       <div class="step"><div class="num">1</div><h4>Post a dare</h4><p>Set the challenge, the reward and how many can win. Your bounty locks in escrow.</p></div>
       <div class="step"><div class="num">2</div><h4>Take the dare</h4><p>Claim a slot, do it for real on camera in one take, say the code.</p></div>
@@ -513,8 +846,18 @@ header{padding:0}
   <!-- ===== PROFILE ===== -->
   <section class="view" data-view="profile">
     <div class="page-h"><h2>Profile</h2><p>Your balance, dares and proof history.</p></div>
-<button class="btn btn-lime" id="deposit-btn" style="margin:0 0 20px"><svg viewBox="0 0 24 24" fill="none" width="18" height="18"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3 10.5h18" stroke="currentColor" stroke-width="2"/><circle cx="16.5" cy="14.7" r="1.25" fill="currentColor"/></svg>Deposit / Add funds</button>
-    <div class="strip" id="p-strip" style="margin:0 0 30px"></div>
+    <!-- Static, not rendered per load: #deposit-btn is wired once at script end. -->
+    <div class="p-id">
+      <div class="p-av" id="p-av">?</div>
+      <div class="who">
+        <div class="n" id="p-name">@&hellip;</div>
+        <div class="b" id="p-bal">&mdash;<small>Available balance</small></div>
+      </div>
+      <div class="act">
+        <button class="btn btn-lime" id="deposit-btn"><svg viewBox="0 0 24 24" fill="none" width="18" height="18"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3 10.5h18" stroke="currentColor" stroke-width="2"/><circle cx="16.5" cy="14.7" r="1.25" fill="currentColor"/></svg>Deposit / Add funds</button>
+      </div>
+    </div>
+    <div class="p-stats" id="p-strip"></div>
     <div class="sec-label">My submissions</div>
     <div id="p-subs"></div>
     <div class="sec-label" style="margin-top:34px">My posted dares</div>
@@ -523,22 +866,22 @@ header{padding:0}
 </main>
 
 <!-- ===== CHALLENGE DETAIL MODAL ===== -->
-<div id="detail" class="modal-overlay">
-  <div class="modal">
+<div id="detail" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Bounty details">
+  <div class="modal" role="document">
     <button class="modal-x" id="detail-x">✕</button>
     <div id="detail-body"></div>
   </div>
 </div>
 
-<div id="player" class="modal-overlay">
-  <div class="modal">
+<div id="player" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Player profile">
+  <div class="modal" role="document">
     <button class="modal-x" id="player-x">✕</button>
     <div id="player-body"></div>
   </div>
 </div>
 
-<div id="wallet" class="modal-overlay">
-<div class="modal">
+<div id="wallet" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Add funds">
+<div class="modal" role="document">
 <button class="modal-x" id="wallet-x">✕</button>
 <div class="d-title">Add funds</div>
 <div id="wallet-body"><div style="color:var(--muted);text-align:center;padding:30px">Loading…</div></div>
@@ -556,7 +899,7 @@ header{padding:0}
 const tg = window.Telegram && window.Telegram.WebApp;
 let INIT="", ME=null;
 const $=s=>document.querySelector(s);
-if(tg){ tg.ready(); tg.expand(); try{tg.setHeaderColor('#000000');tg.setBackgroundColor('#000000');}catch(e){} INIT=tg.initData||""; }
+if(tg){ tg.ready(); tg.expand(); try{tg.setHeaderColor('#09090c');tg.setBackgroundColor('#09090c');}catch(e){} INIT=tg.initData||""; }
 // haptic feedback (native vibration in Telegram)
 function haptic(kind='light'){ try{ if(tg&&tg.HapticFeedback){
   if(kind==='success'||kind==='error'||kind==='warning') tg.HapticFeedback.notificationOccurred(kind);
@@ -634,7 +977,7 @@ async function loadChallenges(){
     // filter: open = still claimable, closed/history = filled or expired
     const shown=challenges.filter(c=> chFilter==='open' ? isOpen(c) : !isOpen(c));
     if(!shown.length){
-      $('#grid').innerHTML=`<div style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px 0">${chFilter==='open'?'No open bounties right now.':'No closed bounties yet.'}</div>`;
+      $('#grid').innerHTML=`<div class="empty-state"><strong>${chFilter==='open'?'No open bounties right now.':'No completed bounties yet.'}</strong><span>${chFilter==='open'?'Post a challenge or check back soon.':'Finished and expired bounties will appear here.'}</span></div>`;
       grid.dataset.loaded="1"; return;
     }
     $('#grid').innerHTML=shown.map(b=>{
@@ -642,10 +985,12 @@ async function loadChallenges(){
       const segs=Array.from({length:b.maxWinners},(_,i)=>`<div class="seg ${i<b.slots[0]?'on':''}"></div>`).join('');
       return `<div class="card" data-open="${b.id}" style="cursor:pointer">
         <div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${b.full?'':deadlineTag(b.expiresAt)}<span class="tag ${tag}"><span class="d"></span>${b.full?'filled':tag}</span></span></div>
-        <h3>${esc(b.title)}</h3><div class="creator">by <span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span></div>
-        <div class="reward">${money(b.reward)}<small>per winner</small></div>
+        <div class="card-main">
+          <div class="card-copy"><h3>${esc(b.title)}</h3><div class="creator">by <span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span></div></div>
+          <div class="reward">${money(b.reward)}<small>per winner</small></div>
+        </div>
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div>
-        <div class="act"><button class="btn ${b.full?'btn-out':'btn-lime'}" style="width:100%;justify-content:center">${b.full?'View':'Take this dare'}</button></div>
+        <div class="act"><button class="btn ${b.full?'btn-out':'btn-lime'}" style="width:100%;justify-content:center">${b.full?'View result':'View & submit proof'}</button></div>
       </div>`;
     }).join('');
     $('#grid').querySelectorAll('[data-open]').forEach(c=>{
@@ -803,13 +1148,17 @@ function calc(){const r=+$('#f-rw').value||0,n=+$('#f-w').value;
   $('#e-rw').textContent=fmt(r*n);$('#e-f').textContent=fmt(Math.round(r*n*.05));$('#e-t').textContent=fmt(r*n+Math.round(r*n*.05))}
 $('#f-rw').oninput=calc;$('#f-w').onchange=calc;calc();
 $('#create-btn').onclick=async()=>{
+  const createBtn=$('#create-btn'); if(createBtn.disabled) return;
   const title=$('#f-t').value.trim(),desc=$('#f-d').value.trim(),rules=$('#f-r').value.trim();
   const reward=+$('#f-rw').value,maxWinners=+$('#f-w').value,expiresInDays=+$('#f-x').value;
-  if(!title||!desc){toast('Fill in the title and description.');return;}
+  if(!title||!desc||!rules){toast('Add a title, description and proof checklist.');return;}
+  if(!Number.isFinite(reward)||reward<1){toast('Reward must be at least $1.');return;}
+  const createLabel=createBtn.textContent; createBtn.disabled=true; createBtn.textContent='Publishing...';
   try{ const r=await api('/api/challenges',{method:'POST',body:JSON.stringify({title,desc,rules,reward,maxWinners,expiresInDays})});
     toast(`${r.code} posted! Locked ${money(r.locked)}.`); haptic('success'); confetti(); await refreshMe(); go('bounties');
     $('#f-t').value='';$('#f-d').value='';$('#f-r').value='';
-  }catch(e){ toast(e.message); }
+  }catch(e){ toast(e.message); haptic('error'); }
+  finally{ createBtn.disabled=false; createBtn.textContent=createLabel; }
 };
 
 // ---- leaderboard ----
@@ -828,21 +1177,24 @@ async function loadProfile(){
     const sig=JSON.stringify(a)+'|'+(ME?ME.credits:'');
     const ps=$('#p-subs'); if(ps.dataset.sig===sig) return; ps.dataset.sig=sig;
     const wins=a.submissions.filter(s=>s.won).length;
+    // Balance moved into the identity card above, so it isn't repeated here.
     $('#p-strip').innerHTML=`
-      <div class="cell"><div class="v lime">${ME?money(ME.credits):'—'}</div><div class="k">Balance</div></div>
       <div class="cell"><div class="v">${wins}</div><div class="k">Wins</div></div>
       <div class="cell"><div class="v">${a.submissions.length}</div><div class="k">Submissions</div></div>
       <div class="cell"><div class="v">${a.challenges.length}</div><div class="k">Posted dares</div></div>`;
     $('#p-subs').innerHTML=a.submissions.length?a.submissions.map(s=>{
       const st=s.won?'won':s.status;
       const lab=s.won?'WON':(s.status==='disputed'?'under review':s.status);
-      return `<div class="sub-row"><span class="st ${st}">${lab}</span>
-        <div class="info"><div class="t">${esc(s.title||s.code)}</div><div class="m">${esc(s.code)} · ${esc(s.file)}${s.reason?' · '+esc(s.reason):''}</div></div>
-        <div style="display:flex;gap:8px;flex-shrink:0">
-        ${s.canAppeal?`<button class="btn btn-out btn-sm" data-appeal="${s.id}">Appeal</button>`:''}
-        ${s.won?`<button class="btn btn-lime btn-sm" data-sharewin="${esc(s.code)}">𝕏 Share</button>`:''}
+      // Appeal is the consequential, time-limited action, so it leads.
+      return `<div class="sub-row is-${st}"><span class="st ${st}">${lab}</span>
+        <div class="info"><div class="t">${esc(s.title||s.code)}</div>
+          <div class="m"><span>${esc(s.code)}</span><span>${esc(s.file)}</span></div>
+          ${s.reason?`<div class="why"><b>${s.status==='rejected'?'Why it was turned down':'Reviewer note'}</b>${esc(s.reason)}</div>`:''}</div>
+        <div class="acts">
+        ${s.canAppeal?`<button class="btn btn-lime btn-sm" data-appeal="${s.id}">Appeal</button>`:''}
+        ${s.won?`<button class="btn btn-out btn-sm" data-sharewin="${esc(s.code)}">𝕏 Share</button>`:''}
         ${s.video?`<button class="btn btn-out btn-sm" onclick="window.open('/uploads/${encodeURIComponent(s.video)}','_blank')">video</button>`:''}</div></div>`;
-    }).join(''):'<div style="color:var(--muted)">No submissions yet. Take a dare!</div>';
+    }).join(''):'<div class="p-empty"><div class="big">No proofs yet</div>Take a dare, film it, and every verdict lands here.</div>';
     $('#p-subs').querySelectorAll('[data-sharewin]').forEach(b=>b.onclick=()=>shareWin(b.dataset.sharewin));
     $('#p-subs').querySelectorAll('[data-appeal]').forEach(b=>b.onclick=()=>appealProof(b.dataset.appeal));
     $('#p-dares').innerHTML=a.challenges.length?a.challenges.map(b=>{
@@ -851,7 +1203,7 @@ async function loadProfile(){
       return `<div class="card"><div class="c-top"><span class="c-id">${b.code}</span><span style="display:flex;gap:6px">${live?deadlineTag(b.expiresAt):''}<span class="tag ${live?'live':'full'}"><span class="d"></span>${lab}</span></span></div>
         <h3>${esc(b.title)}</h3><div class="reward">${money(b.reward)}<small>per winner</small></div>
         <div class="slots"><div class="track">${segs}</div><div class="info"><span>slots <b>${b.slots[0]}/${b.maxWinners}</b></span><span>proofs <b>${b.subs}</b></span></div></div></div>`;
-    }).join(''):'<div style="color:var(--muted)">No posted dares yet.</div>';
+    }).join(''):'<div class="p-empty"><div class="big">No dares posted</div>Put up a bounty and the first valid proof takes it.</div>';
   }catch(e){ $('#p-subs').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
 // contest a rejection — a second reviewer takes another look. Only once per proof.
@@ -891,6 +1243,12 @@ async function loadQueue(){
 // ---- me / header ----
 async function refreshMe(){
   try{ const {user}=await api('/api/me'); ME=user;
+    // The profile identity card reads from the same payload as the header chip,
+    // so a confirmed deposit updates it without waiting for a profile reload.
+    const av=$('#p-av'), nm=$('#p-name'), bl=$('#p-bal');
+    if(av) av.textContent=(user.username||'?').charAt(0).toUpperCase();
+    if(nm) nm.textContent='@'+user.username;
+    if(bl) bl.innerHTML=esc(money(user.credits))+'<small>Available balance</small>';
     // banned → block the app immediately
     const bo=$('#banned'); const wasBanned=bo&&bo.classList.contains('show');
     if(bo) bo.classList.toggle('show', !!user.banned);
@@ -1075,7 +1433,13 @@ function confetti(){
 document.addEventListener('click',e=>{ if(e.target.closest('.btn')) haptic('light'); },true);
 // ---- crypto deposit screen ----
 function copyText(t){ try{navigator.clipboard.writeText(t);}catch(e){} toast('Copied'); haptic('light'); }
-function _depQR(t,id){var el=document.getElementById(id||'dep-qr');if(!el)return;var d=function(){try{el.innerHTML='';new QRCode(el,{text:t,width:176,height:176,correctLevel:QRCode.CorrectLevel.M});}catch(e){}};if(window.QRCode)return d();var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=d;s.onerror=function(){el.innerHTML='<div style="color:var(--muted);font-size:12px">Scan unavailable — use the button</div>';};document.head.appendChild(s);}
+// Redrawing an identical code makes it flicker under the typing. On TON the
+// amount isn't part of the link at all, so every keystroke rebuilt the same
+// QR for nothing; on Solana the payload really does carry &amount=, and that
+// one still regenerates because it has to.
+function _depQR(t,id){var el=document.getElementById(id||'dep-qr');if(!el)return;
+  if(el.dataset.qr===t)return; el.dataset.qr=t;
+  var d=function(){try{el.innerHTML='';new QRCode(el,{text:t,width:176,height:176,correctLevel:QRCode.CorrectLevel.M});}catch(e){}};if(window.QRCode)return d();var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=d;s.onerror=function(){el.innerHTML='<div style="color:var(--muted);font-size:12px">Scan unavailable — use the button</div>';};document.head.appendChild(s);}
 function _depOpen(dl){ try{ (window.Telegram&&Telegram.WebApp&&Telegram.WebApp.openLink)?Telegram.WebApp.openLink(dl):window.open(dl,'_blank'); }catch(e){ window.open(dl,'_blank'); } }
 // ---- guided deposit flow ----
 // State for the open wallet modal. `startBalance` lets the poller detect an
@@ -1091,6 +1455,17 @@ function depDeepLink(){ const {w,method,amount}=DEP;
   let dl='https://app.tonkeeper.com/transfer/'+w.address+'?text='+encodeURIComponent(w.comment);
   if(w.jetton) dl+='&jetton='+encodeURIComponent(w.jetton); return dl; }   // wallet handles the jetton amount
 function depMin(){ const {w,method}=DEP; return method==='sol'? (w.sol.min+' USDC') : 'a small amount of USDT'; }
+// Chain marks, inlined. A deposit sheet is the last screen that should be
+// waiting on a third-party image host — or telling one that this person is
+// about to move money.
+function depIcon(id){ return id==='sol'
+  ? `<svg class="dep-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#2775CA"/>`
+    + `<circle cx="12" cy="12" r="7.7" fill="none" stroke="#fff" stroke-width="1.1" opacity=".45"/>`
+    + `<path d="M12 7.2v9.6" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>`
+    + `<path d="M14.3 9.8c0-1-1-1.8-2.3-1.8s-2.3.8-2.3 1.8 1 1.6 2.3 1.9 2.3.9 2.3 1.9-1 1.8-2.3 1.8-2.3-.8-2.3-1.8" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  : `<svg class="dep-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#0098EA"/>`
+    + `<path d="M5.9 8.1h12.2L12 19.3 5.9 8.1Z" fill="#fff"/>`
+    + `<path d="M12 8.1v11.2" stroke="#0098EA" stroke-width="1.1"/></svg>`; }
 
 async function openWallet(){
   $('#wallet').classList.add('show'); haptic('light');
@@ -1110,9 +1485,19 @@ async function openWallet(){
 function renderWallet(){
   const {w,method}=DEP; const b=$('#wallet-body'); const methods=depMethods(w);
   const isSol=method==='sol'; const addr=isSol? w.sol.address : w.address;
+  const sel=methods.find(mm=>mm.id===method)||methods[0];
   b.innerHTML=`
     <div class="dep-bal"><span class="k">Your balance</span><span class="v">${money(w.balance)}</span></div>
-    ${methods.length>1?`<div class="dep-seg" id="dep-seg">${methods.map(mm=>`<button data-m="${mm.id}" class="${mm.id===method?'on':''}">${esc(mm.label)}</button>`).join('')}</div>`:''}
+    <div class="dep-pick" id="dep-pick">
+      <button type="button" class="dep-cur" id="dep-cur" aria-haspopup="listbox" aria-expanded="false"${methods.length>1?'':' disabled'}>
+        ${depIcon(method)}<span class="dep-name">${esc(sel.label)}</span><span class="dep-net">${esc(sel.net||'')}</span>
+        ${methods.length>1?`<svg class="dep-chev" viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M6 9.5l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`:''}
+      </button>
+      ${methods.length>1?`<div class="dep-opts" id="dep-opts" role="listbox">${methods.map(mm=>
+        `<button type="button" role="option" aria-selected="${mm.id===method}" data-m="${mm.id}" class="${mm.id===method?'on':''}">
+          ${depIcon(mm.id)}<span class="dep-name">${esc(mm.label)}</span><span class="dep-net">${esc(mm.net||'')}</span>
+        </button>`).join('')}</div>`:''}
+    </div>
     <div class="d-box"><div class="lbl">Step 1 · Amount (optional)</div>
       <div class="dep-amt"><input id="dep-amt" type="number" inputmode="decimal" placeholder="0.00" value="${esc(DEP.amount)}"><span class="cur">${isSol?'USDC':'USDT'}</span></div>
       <div class="dep-chips">${[5,10,25,50].map(v=>`<button data-amt="${v}">+${v}</button>`).join('')}</div>
@@ -1132,7 +1517,12 @@ function renderWallet(){
     <div class="d-box"><div class="lbl">Recent deposits</div><div class="dep-hist" id="dep-hist"><div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div></div></div>`;
 
   b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
-  const seg=b.querySelector('#dep-seg'); if(seg) seg.querySelectorAll('[data-m]').forEach(btn=>btn.onclick=()=>{ DEP.method=btn.dataset.m; haptic('light'); renderWallet(); });
+  const pick=b.querySelector('#dep-pick'), cur=b.querySelector('#dep-cur');
+  if(cur&&methods.length>1) cur.onclick=()=>{ const on=pick.classList.toggle('open'); cur.setAttribute('aria-expanded',on); haptic('light'); };
+  // Picking re-renders, which collapses the panel on the way out.
+  b.querySelectorAll('#dep-opts [data-m]').forEach(btn=>btn.onclick=()=>{ DEP.method=btn.dataset.m; haptic('light'); renderWallet(); });
+  // An open list left hanging over the amount field is worse than no list.
+  if(pick) b.onclick=e=>{ if(!pick.contains(e.target)) pick.classList.remove('open'); };
   const amt=b.querySelector('#dep-amt'); if(amt) amt.oninput=()=>{ DEP.amount=amt.value; _depQR(depDeepLink()); };
   b.querySelectorAll('[data-amt]').forEach(c=>c.onclick=()=>{ DEP.amount=String((+DEP.amount||0)+(+c.dataset.amt)); if(amt)amt.value=DEP.amount; _depQR(depDeepLink()); haptic('light'); });
   const ob=b.querySelector('#dep-open'); if(ob)ob.onclick=()=>{ haptic('light'); _depOpen(depDeepLink()); };

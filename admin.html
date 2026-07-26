@@ -120,6 +120,110 @@ input[type=number]{width:90px;display:inline-block}
 .flow-row .bar:hover span{filter:brightness(1.2)}
 .stat{transition:transform .15s,border-color .15s}
 .stat:hover{transform:translateY(-2px);border-color:var(--line2)}
+
+/* Clean admin UI — same visual language as the player app */
+:root{
+  --bg:#0a0a0d;
+  --surface:#131317;
+  --surface2:#19191f;
+  --line:#25252c;
+  --line2:#34343d;
+  --txt:#f5f5f7;
+  --muted:#8d8d98;
+  --lime:#ff4f45;
+  --green:#38c793;
+  --red:#ff5967;
+  --amber:#f2aa52;
+  --blue:#68a7ff;
+}
+body{background:var(--bg)}
+button,input,select{font:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible{
+  outline:2px solid var(--txt);outline-offset:2px
+}
+#login{padding:18px}
+.login-card{
+  max-width:380px;padding:28px;
+  border-color:var(--line);border-radius:16px;
+  box-shadow:0 24px 70px rgba(0,0,0,.35)
+}
+.brand .m{
+  width:34px;height:34px;border-radius:10px;
+  background:var(--lime)
+}
+.login-card h1{font-size:20px}
+input,select{
+  min-height:42px;background:var(--surface2);
+  border-color:var(--line);border-radius:9px
+}
+input:focus{border-color:var(--lime)}
+.btn{min-height:38px;border-radius:9px}
+.btn-lime{background:var(--lime);color:#fff}
+.btn-out{background:transparent;border-color:var(--line2)}
+
+#app{max-width:1180px;padding:16px 18px 50px}
+.topbar{
+  min-height:48px;margin-bottom:16px;
+  padding-bottom:14px;border-bottom:1px solid var(--line)
+}
+.tabs{
+  position:sticky;top:0;z-index:20;
+  gap:4px;margin:0 -6px 20px;padding:8px 6px;
+  overflow-x:auto;flex-wrap:nowrap;
+  background:rgba(10,10,13,.94);
+  backdrop-filter:blur(10px);
+  scrollbar-width:none
+}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{
+  min-width:max-content;padding:8px 13px;
+  background:transparent;border-color:transparent;
+  border-radius:8px
+}
+.tabs button:hover{color:var(--txt);background:var(--surface)}
+.tabs button.active{
+  background:var(--txt);border-color:var(--txt);color:#111
+}
+.tabs button.active .cnt{background:#ddd;color:#111}
+
+.grid{gap:10px}
+.stat{
+  min-height:104px;padding:16px;
+  border-radius:12px;background:var(--surface);
+  box-shadow:none
+}
+.stat:hover{transform:none;background:#16161b}
+.stat .v{font-size:23px}
+.stat .v.lime{color:var(--txt)}
+.card{
+  padding:14px 15px;border-radius:12px;
+  background:var(--surface);border-color:var(--line)
+}
+.card:hover{border-color:var(--line2)}
+.tag{font-size:10px}
+.tag.live{color:var(--green);background:rgba(56,199,147,.1)}
+.t-payout,.t-refund{color:var(--green)}
+.sumbar{gap:8px}
+.sumbar .chip{background:var(--surface);border-color:var(--line)}
+.sumbar .chip.lime b{color:var(--green)}
+.ledger,.chart-card{background:var(--surface);border-color:var(--line)}
+.ledger .l{border-color:var(--line)}
+.chart-card{border-radius:12px}
+.bars .col.hot .b{box-shadow:none}
+#tip{background:var(--surface2);box-shadow:0 12px 35px rgba(0,0,0,.4)}
+
+@media(max-width:620px){
+  #app{padding:12px 12px 40px}
+  .topbar{align-items:flex-start}
+  .topbar .brand b{font-size:15px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat{min-height:94px;padding:13px}
+  .stat .v{font-size:20px}
+  .row{align-items:flex-start}
+  .row>.btn{width:100%;margin-top:6px}
+  .card{padding:13px}
+  .ledger{overflow-x:auto}
+}
 </style>
 </head>
 <body>
