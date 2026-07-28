@@ -6,7 +6,14 @@
 <meta name="theme-color" content="#09090c">
 <meta name="description" content="Bountly is a Telegram mini app where real challenges meet real rewards. Do the dare, submit proof, get paid.">
 <title>Bountly</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Archivo is a variable family with a width axis, so headings, body and the
+     big money figures all come from one typeface at different widths and
+     weights. That contrast is what makes a page look drawn rather than
+     assembled — Inter at three weights is the house style of every template
+     on the internet, which is exactly what this used to look like. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 /* Base tokens. The design layer near the bottom of this stylesheet restates
    them — keep the two in step, and never let --lime and --red collide again:
@@ -27,7 +34,9 @@
   --red:#ff5f6d;
   --amber:#e8a13c;
   --mono:'JetBrains Mono',monospace;
-  --sans:'Inter',system-ui,sans-serif;
+  --sans:'Archivo',system-ui,sans-serif;
+  /* Wide and heavy: reserved for money and for the brand. Nothing else. */
+  --display:'Archivo',system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -744,6 +753,123 @@ footer{display:none}
 
 .view.active,.lbrow,.sub-row,.p-stats .cell{animation:none!important}
 .pip{background:#3a3f47}
+
+/* ============================================================
+   SIGNATURE
+   Order on its own reads as a template. These are the bits that
+   make it look drawn: width contrast in the type, a ground with
+   some tooth to it, money set like a stamped figure, and exactly
+   one element on a screen allowed to glow.
+   ============================================================ */
+body{font-family:var(--sans);font-variation-settings:'wdth' 100}
+
+/* Grain. A flat dark fill is the tell of a generated page; a ground with a
+   little tooth stops the surfaces reading as slabs of hex. Fixed and inert
+   so it costs nothing to scroll over. */
+body::after{
+  content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;
+  opacity:.16;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")
+}
+@media(prefers-reduced-motion:reduce){body::after{opacity:.1}}
+
+/* Brand: wide, heavy, tight. The one place the name gets to be loud. */
+.brand .nm{
+  font-family:var(--display);font-variation-settings:'wdth' 118;
+  font-weight:900;font-size:19px;letter-spacing:-.04em;text-transform:lowercase
+}
+.brand .mark{border-radius:11px;box-shadow:0 4px 14px rgba(255,77,61,.35)}
+
+/* Surfaces get a top edge and a little vertical fall, so a card looks lit
+   rather than filled. One hairline does more than a heavier border. */
+.card,.p-id,.d-box,.escrow,.sub-row,.p-stats,.modal,.dep-bal,.seg{
+  background-image:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 42%)
+}
+.card,.p-id,.modal{box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.4)}
+.card[data-open]:hover{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 6px 20px rgba(0,0,0,.45);
+  border-color:#3a3f47
+}
+
+/* Money, set like a figure stamped on a ticket: wide, heavy, tabular so
+   columns of prices line up, with the currency mark small and raised. */
+.c-pay b,.d-reward,.p-id .who .b,.dep-bal .v,.strip b{
+  font-family:var(--display);font-variation-settings:'wdth' 112;
+  font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.045em
+}
+.c-pay b,.d-reward{display:inline-block}
+.c-pay b::first-letter,.d-reward::first-letter,.p-id .who .b::first-letter,.dep-bal .v::first-letter{
+  font-size:.56em;vertical-align:.42em;font-weight:800;margin-right:1px
+}
+.c-pay b{font-size:26px;line-height:1}
+.d-reward{font-size:44px;line-height:1}
+.p-id .who .b{font-size:34px}
+.c-pay span{
+  display:block;margin:3px 0 0;font-family:var(--mono);
+  font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)
+}
+
+/* Titles carry a touch of negative tracking and a semi-condensed cut, so a
+   long dare reads as a headline instead of as a sentence in a box. */
+.card h3,.page-h h2,.how-intro h2,.d-title,.modal h3{
+  font-family:var(--display);font-variation-settings:'wdth' 92;
+  letter-spacing:-.025em
+}
+.card h3{font-weight:700;font-size:16.5px;line-height:1.22}
+
+/* Tags stop being pills and become stamps: square, mono, letterspaced. */
+.tag,.st{
+  border-radius:3px;font-family:var(--mono);font-weight:700;
+  font-size:9px;letter-spacing:.11em;text-transform:uppercase;padding:4px 7px
+}
+.tag.hot{color:#0d0f12;background:var(--amber)}
+.c-slot span:last-child{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--dim)
+}
+.c-meta{font-size:12px;color:var(--dim)}
+.c-meta .plink{color:var(--muted);border-bottom:0}
+.c-foot{
+  margin-top:12px;padding-top:12px;
+  border-top:1px solid rgba(255,255,255,.055)
+}
+
+/* The one glow in the app, on the one action that moves money. */
+.btn-lime{
+  background-image:linear-gradient(180deg,#ff6152,var(--lime));
+  box-shadow:0 1px 0 rgba(255,255,255,.22) inset,0 6px 18px rgba(255,77,61,.32);
+  letter-spacing:-.005em
+}
+.btn-lime:hover{
+  background-image:linear-gradient(180deg,#ff7365,#ff5445);
+  box-shadow:0 1px 0 rgba(255,255,255,.28) inset,0 8px 24px rgba(255,77,61,.42)
+}
+.btn{font-weight:700}
+
+/* Form labels spoke a different language from every other label in the app —
+   sentence-case sans against mono caps everywhere else. One voice. */
+label{
+  font-family:var(--mono);font-size:9px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:8px
+}
+input,textarea,select{
+  min-height:46px;border-radius:11px;font-size:15px;
+  background-image:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,0) 60%)
+}
+input:focus,textarea:focus,select:focus{
+  border-color:var(--muted);box-shadow:0 0 0 3px rgba(255,255,255,.05)
+}
+.escrow .eh{font-size:9px;letter-spacing:.14em;color:var(--dim)}
+.escrow .ln.tot b{
+  font-family:var(--display);font-variation-settings:'wdth' 112;
+  font-weight:900;font-variant-numeric:tabular-nums;font-size:19px;letter-spacing:-.03em
+}
+
+/* Section labels as rules with a caption, not as headings. */
+.sec-label{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--dim)}
+.strip{font-size:12px;letter-spacing:.01em}
+.strip b{font-size:14px}
+.seg button{font-family:var(--sans);font-variation-settings:'wdth' 96;letter-spacing:-.01em}
 
 @media(max-width:680px){
   main{padding-left:14px!important;padding-right:14px!important}
