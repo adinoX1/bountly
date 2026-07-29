@@ -40,6 +40,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_withdraw_ref ON ledger_tx(ref) WHERE type
 ALTER TABLE submissions DROP CONSTRAINT IF EXISTS submissions_dare_id_hunter_id_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_live_submission
   ON submissions(dare_id, hunter_id) WHERE status <> 'rejected';
+-- ---- withdrawals -------------------------------------------------------
+-- Money on its way out sits in its own account kind rather than leaving the
+-- user's balance for nowhere. Widen the CHECK the same drop/re-add way as
+-- above so an older database accepts it.
+ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_kind_check;
+ALTER TABLE accounts ADD  CONSTRAINT accounts_kind_check
+  CHECK (kind IN ('user','escrow','platform_fees','external','withdrawal_pending'));
+CREATE TABLE IF NOT EXISTS withdrawals (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  chain        TEXT NOT NULL CHECK (chain IN ('ton','sol')),
+  address      TEXT NOT NULL,
+  gross        BIGINT NOT NULL CHECK (gross > 0),   -- taken from the user, micro-units
+  fee          BIGINT NOT NULL CHECK (fee >= 0),    -- kept by the platform
+  net          BIGINT NOT NULL CHECK (net > 0),     -- actually sent on-chain
+  status       TEXT NOT NULL DEFAULT 'requested'
+               CHECK (status IN ('requested','sent','failed','rejected')),
+  txhash       TEXT,
+  reason       TEXT,
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_withdrawals_user   ON withdrawals(user_id);
+CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status);
+-- One in flight per person. Two taps must never become two payouts, and the
+-- database is a better place to enforce that than a button's disabled state.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_open_withdrawal
+  ON withdrawals(user_id) WHERE status = 'requested';
 `;
 
 export const MICRO = L.MICRO;
@@ -154,6 +182,59 @@ export const refund   = (db, dareId) => L.refundDare(db, dareId);
 export const APPEAL_WINDOW_MS = L.APPEAL_WINDOW_MS;
 export const deposit  = (db, userId, usdt, txhash) => L.deposit(db, String(userId), toMicro(usdt), txhash);
 export const withdraw = (db, userId, usdt, txhash) => L.withdraw(db, String(userId), toMicro(usdt), txhash);
+
+// ---- withdrawals -------------------------------------------------------
+export const WITHDRAW_FEE_BPS = L.WITHDRAW_FEE_BPS;
+export const WITHDRAW_MIN     = toUsdt(L.WITHDRAW_MIN);
+
+// Ask to take money out. Reserves it; sends nothing. Every request waits for
+// a human — see the approval note in server_ledger.js.
+export async function requestWithdrawal(db, { userId, usdt, chain, address }) {
+  if (chain !== 'ton' && chain !== 'sol') throw new Error('chain must be ton or sol');
+  const addr = String(address || '').trim();
+  if (!addr) throw new Error('paste the address to send to');
+  // Validated here, before any balance moves, using the chain's own rules.
+  const mod = chain === 'ton' ? await import('./ton.js') : await import('./solana.js');
+  if (!mod.isValidAddress(addr)) throw new Error(`that is not a valid ${chain === 'ton' ? 'TON' : 'Solana'} address`);
+  try {
+    const r = await L.requestWithdrawal(db, { userId: String(userId), amount: toMicro(usdt), chain, address: addr });
+    return { ...r, gross: toUsdt(r.gross), fee: toUsdt(r.fee), net: toUsdt(r.net) };
+  } catch (e) {
+    // The partial unique index is the real guard against a double tap; turn
+    // its Postgres error into something a person can act on.
+    if (/uniq_open_withdrawal/.test(e.message))
+      throw new Error('you already have a withdrawal waiting for review');
+    throw e;
+  }
+}
+
+export const settleWithdrawal = (db, id, ref)      => L.settleWithdrawal(db, id, ref);
+export const cancelWithdrawal = (db, id, opts)     => L.cancelWithdrawal(db, id, opts);
+
+const wRow = w => ({ id: Number(w.id), user: w.user_id, chain: w.chain, address: w.address,
+  gross: toUsdt(w.gross), fee: toUsdt(w.fee), net: toUsdt(w.net), status: w.status,
+  txhash: w.txhash, reason: w.reason,
+  at: w.requested_at ? new Date(w.requested_at).getTime() : 0,
+  decidedAt: w.decided_at ? new Date(w.decided_at).getTime() : null });
+
+export async function userWithdrawals(db, userId, limit = 20) {
+  const r = await db.query(
+    `SELECT * FROM withdrawals WHERE user_id=$1 ORDER BY id DESC LIMIT $2`, [String(userId), limit]);
+  return r.rows.map(wRow);
+}
+
+// The review queue: oldest first, because the person who waited longest for
+// their money should not be behind the one who asked a minute ago.
+export async function pendingWithdrawals(db, limit = 100) {
+  const r = await db.query(
+    `SELECT * FROM withdrawals WHERE status='requested' ORDER BY id ASC LIMIT $1`, [limit]);
+  return r.rows.map(wRow);
+}
+
+export async function getWithdrawal(db, id) {
+  const r = await db.query(`SELECT * FROM withdrawals WHERE id=$1`, [id]);
+  return r.rows.length ? wRow(r.rows[0]) : null;
+}
 
 // ---- read models (return whole USDT to match the current UI) ----
 

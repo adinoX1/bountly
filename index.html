@@ -903,6 +903,15 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
 .dep-bal .v::first-letter{font-size:1em;vertical-align:baseline;margin:0}
 .dep-cur,.dep-opts,.dep-status{background:rgba(0,0,0,.38);border:1px solid var(--line);
   border-radius:12px}
+/* Deposit / Withdraw, and the chain picker inside Withdraw. */
+.dep-seg{display:flex;gap:8px;margin:0 0 18px}
+.dep-seg button{flex:1;padding:13px;border-radius:12px;cursor:pointer;
+  background:rgba(255,255,255,.05);border:1px solid var(--line-strong);color:var(--txt2);
+  font-family:var(--strong);font-weight:700;font-size:13px;transition:.15s;
+  -webkit-tap-highlight-color:transparent}
+.dep-seg button.on{color:#fff;border-color:transparent;
+  background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 8px 20px -8px rgba(255,46,59,.6)}
 .dep-pick.open .dep-cur{border-color:var(--red-line)}
 .dep-opts button.on .dep-name{color:#fff}
 .dep-chips button:hover{border-color:var(--red)}
@@ -1132,7 +1141,7 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
 <div id="wallet" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Add funds">
 <div class="modal" role="document">
 <button class="modal-x" id="wallet-x">✕</button>
-<div class="d-title">Add funds</div>
+<div class="d-title" id="wallet-title">Wallet</div>
 <div id="wallet-body"><div style="color:var(--muted);text-align:center;padding:30px">Loading…</div></div>
 </div>
 </div>
@@ -1872,13 +1881,89 @@ function depIcon(id){ return id==='sol'
     + `<path d="M5.9 8.1h12.2L12 19.3 5.9 8.1Z" fill="#fff"/>`
     + `<path d="M12 8.1v11.2" stroke="#0098EA" stroke-width="1.1"/></svg>`; }
 
+// ---- withdraw ----
+// Every request waits for a human before anything reaches a chain, and the
+// screen says so up front. A payout that silently sits for a day is worse
+// than one you were told to expect.
+async function renderWithdraw(){
+  const {w}=DEP; const b=$('#wallet-body'); const methods=depMethods(w);
+  $('#wallet-title').textContent='Cash out';
+  const chain=DEP.wchain||methods[0].id;
+  DEP.wchain=chain;
+  const isSol=chain==='sol';
+  b.innerHTML=`
+    <div class="dep-bal"><span class="k">Your balance</span><span class="v">${money(w.balance)}</span></div>
+    ${WTABS}
+    <div id="w-hist"></div>
+    ${methods.length>1?`<div class="dep-seg" id="w-chain">${methods.map(mm=>
+      `<button data-c="${mm.id}" class="${mm.id===chain?'on':''}">${esc(mm.label)}</button>`).join('')}</div>`:''}
+    <div class="d-box"><div class="lbl">Amount</div>
+      <div class="dep-amt"><input id="w-amt" type="number" inputmode="decimal" placeholder="0.00" value="${esc(DEP.wamount||'')}"><span class="cur">${isSol?'USDC':'USDT'}</span></div>
+      <div class="dep-chips" id="w-chips">${[10,25,50].map(v=>`<button data-amt="${v}">${money(v)}</button>`).join('')}<button data-amt="all">All</button></div>
+      <div id="w-calc" style="font-size:12px;color:var(--muted);margin-top:10px"></div></div>
+    <div class="d-box"><div class="lbl">Your ${isSol?'Solana':'TON'} address</div>
+      <input id="w-addr" placeholder="${isSol?'Paste your Solana address':'Paste your TON address'}" value="${esc(DEP.waddr||'')}" autocomplete="off" spellcheck="false" style="font-family:var(--mono);font-size:13px">
+      <div style="font-size:12px;color:var(--muted);margin-top:8px">Check it twice. A transfer on a chain cannot be undone, and an address on the wrong network loses the money.</div></div>
+    <button class="btn btn-lime" id="w-go" style="width:100%;margin:0 0 14px">Request withdrawal</button>
+    <div class="d-box" style="font-size:13px;color:var(--muted)">Withdrawals are reviewed by a person before they are sent. Your balance is held from the moment you ask, and returned in full if it is declined.</div>`;
+  wireTabs(b);
+  b.querySelectorAll('#w-chain button').forEach(x=>x.onclick=()=>{ DEP.wchain=x.dataset.c; haptic('light'); renderWithdraw(); });
+  const amt=b.querySelector('#w-amt'), addr=b.querySelector('#w-addr');
+  const recalc=()=>{
+    DEP.wamount=amt.value; DEP.waddr=addr.value;
+    // Same arithmetic the ledger does: floor the basis points, in cents.
+    const v=Number(amt.value)||0, f=Math.floor(v*(WFEE.bps??200)/100)/100;
+    $('#w-calc').innerHTML = v<=0 ? `Minimum ${money(WFEE.min??5)}.`
+      : v<(WFEE.min??5) ? `<span style="color:var(--amber)">Minimum is ${money(WFEE.min??5)}.</span>`
+      : v>w.balance ? `<span style="color:var(--red)">That is more than your balance.</span>`
+      : `Fee ${money(f)} · <b style="color:var(--txt)">${money(v-f)}</b> arrives in your wallet`;
+  };
+  amt.oninput=recalc; addr.oninput=()=>{ DEP.waddr=addr.value; };
+  b.querySelectorAll('#w-chips button').forEach(x=>x.onclick=()=>{
+    amt.value = x.dataset.amt==='all' ? String(w.balance) : x.dataset.amt;
+    haptic('light'); recalc();
+  });
+  recalc();
+  b.querySelector('#w-go').onclick=async()=>{
+    const btn=b.querySelector('#w-go'); if(btn.disabled) return;
+    const usdt=Number(amt.value)||0, address=addr.value.trim();
+    if(!address){ toast('Paste the address to send to.'); return; }
+    btn.disabled=true; const lbl=btn.textContent; btn.textContent='Sending request…';
+    try{
+      const r=await api('/api/wallet/withdraw',{method:'POST',body:JSON.stringify({usdt,chain:DEP.wchain,address})});
+      toast(`Requested — ${money(r.net)} once it is approved.`); haptic('success');
+      DEP.wamount=''; await refreshMe(); DEP.w.balance=ME?ME.credits:DEP.w.balance;
+      renderWithdraw();
+    }catch(e){ toast(e.message); haptic('error'); btn.disabled=false; btn.textContent=lbl; }
+  };
+  loadWithdrawals();
+}
+let WFEE={min:5,bps:200};
+async function loadWithdrawals(){
+  try{
+    const r=await api('/api/wallet/withdrawals');
+    WFEE={min:r.min??5,bps:r.feeBps??200};
+    const rows=r.withdrawals||[];
+    const el=$('#w-hist'); if(!el) return;
+    if(!rows.length){ el.innerHTML=''; return; }
+    const label={requested:'waiting for review',sent:'sent',rejected:'declined',failed:'could not be sent'};
+    const col={requested:'var(--amber)',sent:'var(--green)',rejected:'var(--muted)',failed:'var(--red)'};
+    el.innerHTML=`<div class="d-box"><div class="lbl">Your withdrawals</div>${rows.slice(0,5).map(x=>
+      `<div class="row" style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;font-size:13px">
+        <span><b style="font-family:var(--mono)">${money(x.net)}</b> <span style="color:var(--muted)">${x.chain==='sol'?'Solana':'TON'}</span></span>
+        <span style="color:${col[x.status]};font-family:var(--mono);font-size:11px">${label[x.status]||x.status}</span>
+      </div>${x.reason?`<div style="font-size:12px;color:var(--muted);margin:-4px 0 6px">${esc(x.reason)}</div>`:''}`).join('')}</div>`;
+  }catch(e){ /* the list is a nicety; a failure here must not block the form */ }
+}
+
 async function openWallet(){
   $('#wallet').classList.add('show'); haptic('light');
   const b=$('#wallet-body'); b.innerHTML='<div class="dep-load">Loading…</div>';
   try{ const w=await api('/api/wallet/info');
     const methods=depMethods(w);
     if(!methods.length){ b.innerHTML='<div class="d-box">Crypto deposits aren\'t live yet — check back soon.</div>'; return; }
-    DEP={ w, method:methods[0].id, amount:'', startBalance:w.balance, poll:DEP.poll, ticks:0, seen:{} };
+    DEP={ w, method:methods[0].id, amount:'', startBalance:w.balance, poll:DEP.poll, ticks:0, seen:{},
+          tab:'in', wchain:methods[0].id, wamount:'', waddr:'' };
     renderWallet();
     // watch for the transfer to land: the server scans the chain for this
     // account, reports how confirmed each sighting is, and credits at finality
@@ -1887,12 +1972,28 @@ async function openWallet(){
     depTick();
   }catch(e){ b.innerHTML=`<div class="dep-err">${esc(e.message)}</div>`; }
 }
+// The sheet does both directions now. Money that can only go in is not a
+// wallet, it is a deposit box — and nobody funds one of those twice.
+const WTABS=`<div class="dep-seg" id="w-tabs">
+  <button data-tab="in" class="on">Deposit</button><button data-tab="out">Withdraw</button></div>`;
+function wireTabs(b){
+  b.querySelectorAll('#w-tabs button').forEach(x=>x.onclick=()=>{
+    if(x.dataset.tab===DEP.tab) return;
+    DEP.tab=x.dataset.tab; haptic('light');
+    DEP.tab==='out'?renderWithdraw():renderWallet();
+  });
+  const on=b.querySelector(`#w-tabs button[data-tab="${DEP.tab}"]`);
+  b.querySelectorAll('#w-tabs button').forEach(x=>x.classList.toggle('on',x===on));
+}
+
 function renderWallet(){
   const {w,method}=DEP; const b=$('#wallet-body'); const methods=depMethods(w);
   const isSol=method==='sol'; const addr=isSol? w.sol.address : w.address;
   const sel=methods.find(mm=>mm.id===method)||methods[0];
+  $('#wallet-title').textContent='Add funds';
   b.innerHTML=`
     <div class="dep-bal"><span class="k">Your balance</span><span class="v">${money(w.balance)}</span></div>
+    ${WTABS}
     <div class="dep-pick" id="dep-pick">
       <button type="button" class="dep-cur" id="dep-cur" aria-haspopup="listbox" aria-expanded="false"${methods.length>1?'':' disabled'}>
         ${depIcon(method)}<span class="dep-name">${esc(sel.label)}</span><span class="dep-net">${esc(sel.net||'')}</span>
@@ -1921,6 +2022,7 @@ function renderWallet(){
     <div class="dep-status" id="dep-status"><span class="dot"></span><span class="dep-body"><span class="dep-msg">Watching the chain for your transfer… it&rsquo;s credited automatically once it confirms.</span><span class="dep-prog"><i></i></span></span></div>
     <div class="d-box"><div class="lbl">Recent deposits</div><div class="dep-hist" id="dep-hist"><div style="color:var(--muted);font-size:13px;padding:6px 0">None yet.</div></div></div>`;
 
+  wireTabs(b);
   b.querySelectorAll('[data-copy]').forEach(x=>x.onclick=()=>copyText(x.dataset.copy));
   const pick=b.querySelector('#dep-pick'), cur=b.querySelector('#dep-cur');
   if(cur&&methods.length>1) cur.onclick=()=>{ const on=pick.classList.toggle('open'); cur.setAttribute('aria-expanded',on); haptic('light'); };
@@ -1970,6 +2072,16 @@ function renderDepStatus(v){
 async function depTick(){
   if(!$('#wallet').classList.contains('show')){ clearInterval(DEP.poll); return; }
   DEP.ticks=(DEP.ticks||0)+1;
+  // On the withdraw tab there is no incoming transfer to watch for. Keep the
+  // balance honest — it is the number the amount is checked against — and
+  // skip the chain scan and the deposit-only furniture.
+  if(DEP.tab==='out'){
+    try{ const w=await api('/api/wallet/info'); if(!DEP.w) return;
+      DEP.w.balance=w.balance;
+      const bal=$('.dep-bal .v'); if(bal) bal.textContent=money(w.balance);
+    }catch(e){}
+    return;
+  }
   if(DEP.ticks%3===1) api('/api/wallet/scan',{method:'POST',body:'{}'}).catch(()=>{});
   try{
     const [w,pn]=await Promise.all([ api('/api/wallet/info'),

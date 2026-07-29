@@ -184,7 +184,21 @@ export function startDepositWatcher(pool, everyMs = 30000, log = console) {
 }
 
 // ---- WITHDRAWAL (signs with WALLET_MNEMONIC you provide; testnet-first) ----
+// Is this a TON address at all? Checked before the ledger is touched, because
+// a jetton transfer to a malformed address is money gone with no undo.
+// Accepts both user-friendly base64 (EQ…/UQ…) and raw workchain:hex form.
+export function isValidAddress(address) {
+  if (typeof address !== 'string') return false;
+  const s = address.trim();
+  if (/^-?\d+:[0-9a-fA-F]{64}$/.test(s)) return true;
+  if (!/^[A-Za-z0-9_-]{48}$/.test(s)) return false;
+  // 48 base64url chars decode to 36 bytes: tag + workchain + 32 hash + crc16.
+  try { return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64').length === 36; }
+  catch { return false; }
+}
+
 export async function sendUsdt({ toAddress, amountUsdt }) {
+  if (!isValidAddress(toAddress)) throw new Error('that is not a valid TON address');
   if (!process.env.WALLET_MNEMONIC) throw new Error('WALLET_MNEMONIC not set (you must provide it; never share it)');
   const c = cfg();
   if (!c.jetton) throw new Error('USDT_JETTON_MASTER not set');
@@ -213,5 +227,8 @@ export async function sendUsdt({ toAddress, amountUsdt }) {
     seqno, secretKey: key.secretKey,
     messages: [internal({ to: myJetton, value: toNano('0.1'), body })],
   });
-  return { ok: true, seqno };
+  // sendTransfer does not hand back a hash. The wallet address plus its seqno
+  // identifies this transfer exactly once — good enough as the ledger's
+  // idempotency key, which is all `ref` has to be.
+  return { ok: true, seqno, ref: `ton:${w.address.toString()}:${seqno}` };
 }

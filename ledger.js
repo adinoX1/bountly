@@ -23,7 +23,14 @@
 export const MICRO = 1_000_000;                 // 1 USDT = 1_000_000 micro-units
 export const CREATOR_FEE_BPS = 500;             // 5% taken from the creator on funding
 export const PLAYER_FEE_BPS  = 1000;            // 10% taken from each payout
-const GUARDED = new Set(['user', 'escrow']);    // these balances may never go negative
+// Withdrawals take a percentage — but a percentage alone never covers chain
+// gas at the bottom of the range. 2% of $3 is six cents and a jetton transfer
+// costs more than that whatever the amount is, so there is a floor as well.
+export const WITHDRAW_FEE_BPS = Number(process.env.WITHDRAW_FEE_BPS ?? 200);
+export const WITHDRAW_MIN     = Math.round(Number(process.env.WITHDRAW_MIN ?? 5) * MICRO);
+// withdrawal_pending is guarded too: money reserved for a payout is still real
+// money, and a bug that drove it negative would mint some.
+const GUARDED = new Set(['user', 'escrow', 'withdrawal_pending']);
 
 // run fn inside a single DB transaction; rolls back on any throw
 export async function withTx(db, fn) {
@@ -291,6 +298,8 @@ export function refundDare(db, dareId, { cancel = true } = {}) {
 }
 
 // User withdraws to their own wallet (call only AFTER the on-chain send succeeds).
+// Kept for the one-shot path and for the migration; new code should go through
+// requestWithdrawal/settleWithdrawal below, which survive a crash in between.
 export function withdraw(db, userId, amount, txhash) {
   if (amount <= 0) throw new Error('amount must be positive');
   return withTx(db, async () => {
@@ -298,6 +307,89 @@ export function withdraw(db, userId, amount, txhash) {
     const ext = await accountId(db, 'external');
     return postTx(db, { type: 'withdraw', ref: txhash, meta: { userId },
       entries: [{ accountId: usr, amount: -amount }, { accountId: ext, amount: +amount }] });
+  });
+}
+
+// ---- withdrawals, in two phases ------------------------------
+//
+// Doing this in one step is not safe in either order. Send on-chain first and
+// a crash before the ledger write leaves the user paid AND still holding the
+// balance — a free withdrawal, repeatable. Debit first and a failed send
+// leaves them short money that never arrived.
+//
+// So the money moves out of reach immediately and waits in its own account:
+//
+//   request  user -> withdrawal_pending      (balance drops now, nothing sent)
+//   settle   withdrawal_pending -> external  (after the send lands)  + fee
+//   cancel   withdrawal_pending -> user      (declined, or the send failed)
+//
+// A crash between phases leaves a row in 'requested' with the funds parked and
+// conservation intact — recoverable by hand, and never money out of thin air.
+
+// Phase one: reserve. Nothing touches a chain here.
+export function requestWithdrawal(db, { userId, amount, chain, address, feeBps = WITHDRAW_FEE_BPS }) {
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('amount must be a positive integer');
+  if (amount < WITHDRAW_MIN)
+    throw new Error(`minimum withdrawal is $${(WITHDRAW_MIN / MICRO).toFixed(2).replace(/\.00$/, '')}`);
+  const fee = Math.floor(amount * feeBps / 10000);
+  const net = amount - fee;
+  if (net <= 0) throw new Error('the fee would consume the whole withdrawal');
+  return withTx(db, async () => {
+    const usr  = await accountId(db, 'user', userId);
+    const pend = await accountId(db, 'withdrawal_pending', userId);
+    // postTx refuses to overdraw a guarded account, so an over-request throws
+    // here with the shortfall in dollars rather than being caught by a check
+    // somewhere above that could drift out of step with the balance.
+    const txId = await postTx(db, { type: 'withdraw_request', meta: { userId, chain, address },
+      entries: [{ accountId: usr, amount: -amount }, { accountId: pend, amount: +amount }] });
+    const r = await db.query(
+      `INSERT INTO withdrawals(user_id, chain, address, gross, fee, net)
+       VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [String(userId), chain, address, amount, fee, net]);
+    return { id: Number(r.rows[0].id), txId, gross: amount, fee, net };
+  });
+}
+
+// Phase two: the send landed. The reserve leaves the building — net to the
+// outside world, fee to the platform. `txhash` is the idempotency key: the
+// uniq_withdraw_ref index refuses a second settle on the same hash.
+export function settleWithdrawal(db, id, txhash) {
+  if (!txhash) throw new Error('settling a withdrawal needs the on-chain hash');
+  return withTx(db, async () => {
+    const w = (await db.query(`SELECT * FROM withdrawals WHERE id=$1 FOR UPDATE`, [id])).rows[0];
+    if (!w) throw new Error('no such withdrawal');
+    if (w.status !== 'requested') throw new Error(`withdrawal is already ${w.status}`);
+    const pend = await accountId(db, 'withdrawal_pending', w.user_id);
+    const ext  = await accountId(db, 'external');
+    const fees = await accountId(db, 'platform_fees');
+    const entries = [{ accountId: pend, amount: -Number(w.gross) },
+                     { accountId: ext,  amount: +Number(w.net) }];
+    if (Number(w.fee) > 0) entries.push({ accountId: fees, amount: +Number(w.fee) });
+    await postTx(db, { type: 'withdraw', ref: txhash,
+      meta: { userId: w.user_id, withdrawalId: Number(id), chain: w.chain }, entries });
+    await db.query(`UPDATE withdrawals SET status='sent', txhash=$2, decided_at=now() WHERE id=$1`,
+      [id, txhash]);
+    return { ok: true, net: Number(w.net), fee: Number(w.fee) };
+  });
+}
+
+// Declined by a reviewer, or the chain send failed. All of it goes back —
+// including the fee, which was never earned because nothing was sent.
+export function cancelWithdrawal(db, id, { status = 'rejected', reason = null } = {}) {
+  if (status !== 'rejected' && status !== 'failed') throw new Error('cancel status must be rejected or failed');
+  return withTx(db, async () => {
+    const w = (await db.query(`SELECT * FROM withdrawals WHERE id=$1 FOR UPDATE`, [id])).rows[0];
+    if (!w) throw new Error('no such withdrawal');
+    if (w.status !== 'requested') throw new Error(`withdrawal is already ${w.status}`);
+    const pend = await accountId(db, 'withdrawal_pending', w.user_id);
+    const usr  = await accountId(db, 'user', w.user_id);
+    await postTx(db, { type: 'withdraw_cancel',
+      meta: { userId: w.user_id, withdrawalId: Number(id), reason },
+      entries: [{ accountId: pend, amount: -Number(w.gross) },
+                { accountId: usr,  amount: +Number(w.gross) }] });
+    await db.query(`UPDATE withdrawals SET status=$2, reason=$3, decided_at=now() WHERE id=$1`,
+      [id, status, reason ? String(reason).slice(0, 300) : null]);
+    return { ok: true, returned: Number(w.gross) };
   });
 }
 
@@ -319,7 +411,12 @@ export async function reconcile(db) {
     .map(x => ({ id: Number(x.id), kind: x.kind, owner: x.owner_id, balance: Number(x.balance), journal: Number(x.journal) }));
 }
 // What we owe users right now = the minimum real reserve we must hold on-chain.
+// What the house owes. Money reserved for a withdrawal is still owed until it
+// has actually left — leaving it out here would make the float look healthier
+// than it is exactly while a payout is queued.
 export async function liabilities(db) {
-  const r = await db.query(`SELECT COALESCE(SUM(balance),0) AS s FROM accounts WHERE kind IN ('user','escrow')`);
+  const r = await db.query(
+    `SELECT COALESCE(SUM(balance),0) AS s FROM accounts
+      WHERE kind IN ('user','escrow','withdrawal_pending')`);
   return Number(r.rows[0].s);
 }

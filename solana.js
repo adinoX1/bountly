@@ -379,6 +379,57 @@ export function startAddressWatcher(pool, everyMs = 60000, log = console) {
 // Signed by the re-derived deposit keypair; fee-payer = hot wallet, so the
 // user address needs no SOL. NB: validate on devnet before mainnet.
 // ============================================================
+// Is this a Solana address at all? A base58 32-byte public key. Getting this
+// wrong sends real money to nowhere, and there is no undo on a chain — so it
+// is checked before the user's balance is even touched.
+export function isValidAddress(address) {
+  if (typeof address !== 'string') return false;
+  const s = address.trim();
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s)) return false;   // base58, no 0OIl
+  // Length in characters is a weak test — decode and insist on 32 bytes.
+  const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n = 0n; for (const ch of s){ const i = A.indexOf(ch); if (i < 0) return false; n = n * 58n + BigInt(i); }
+  let hex = n.toString(16); if (hex.length % 2) hex = '0' + hex;
+  const leadingZeros = s.length - s.replace(/^1+/, '').length;
+  return hex.length / 2 + leadingZeros === 32;
+}
+
+// Send USDC from the hot wallet to somebody's own address. Separate from
+// sweep(), which only ever moves money inward between addresses we derive.
+//
+// The recipient may not have a USDC token account yet. Creating one costs the
+// payer rent (~0.002 SOL), so it is done deliberately and paid by the hot
+// wallet rather than silently failing the transfer.
+export async function sendUsdc({ toAddress, amountUsdc, log = console }) {
+  if (!isValidAddress(toAddress)) throw new Error('that is not a valid Solana address');
+  if (!(amountUsdc > 0)) throw new Error('amount must be positive');
+  const c = cfg();
+  const web3 = await import('@solana/web3.js');
+  const spl = await import('@solana/spl-token');
+  const conn = new web3.Connection(c.rpc, 'confirmed');
+  const hot = await deriveKeypair(c.hotIndex);
+  const mint = new web3.PublicKey(c.usdcMint);
+  const to = new web3.PublicKey(toAddress);
+  const hotAta = await spl.getAssociatedTokenAddress(mint, hot.publicKey);
+  const toAta = await spl.getAssociatedTokenAddress(mint, to, true);
+  const raw = BigInt(Math.round(amountUsdc * 10 ** c.decimals));
+
+  // Refuse before signing rather than letting the chain reject it — a failed
+  // send still has to be unwound in the ledger, so cheaper to catch here.
+  const bal = await conn.getTokenAccountBalance(hotAta).catch(() => null);
+  const have = bal && bal.value ? BigInt(bal.value.amount) : 0n;
+  if (have < raw) throw new Error('hot wallet is short of USDC for this withdrawal');
+
+  const tx = new web3.Transaction();
+  if (!(await conn.getAccountInfo(toAta)))
+    tx.add(spl.createAssociatedTokenAccountInstruction(hot.publicKey, toAta, to, mint));
+  tx.add(spl.createTransferInstruction(hotAta, toAta, hot.publicKey, raw));
+  tx.feePayer = hot.publicKey;
+  const sig = await web3.sendAndConfirmTransaction(conn, tx, [hot]);
+  log.log?.(`sent ${amountUsdc} USDC → ${toAddress.slice(0, 8)}… (${sig.slice(0, 12)})`);
+  return { ok: true, signature: sig };
+}
+
 export async function sweep({ fromIndex, log = console }) {
   const c = cfg();
   // _libs() never existed — this threw ReferenceError before it reached the

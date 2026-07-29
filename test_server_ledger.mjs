@@ -78,15 +78,57 @@ r = await call('POST','/api/dash/credits/2',{ user:dash, body:{ credits:80 } });
 eq(r.code,200,'third raise still succeeds');
 eq((await call('GET','/api/me',{ user:alice })).body.user.credits,80,'alice now 80');
 
-console.log('\n-- withdraw is admin-only and needs a txhash --');
-eq((await call('POST','/api/wallet/withdraw',{ user:bob, body:{ usdt:5 } })).code,403,'user cannot withdraw');
-eq((await call('POST','/api/wallet/withdraw',{ user:admin, body:{ usdt:5 } })).code,400,'admin still needs a txhash');
-r = await call('POST','/api/wallet/withdraw',{ user:admin, body:{ usdt:5, username:'alice', txhash:'onchain-1' } });
-eq(r.code,200,'admin records a settled send');
-eq((await call('GET','/api/me',{ user:alice })).body.user.credits,75,'alice debited to 75');
-r = await call('POST','/api/wallet/withdraw',{ user:admin, body:{ usdt:5, username:'alice', txhash:'onchain-1' } });
-eq(r.code,400,'the same txhash cannot be recorded twice');
-eq((await call('GET','/api/me',{ user:alice })).body.user.credits,75,'alice not double-debited');
+console.log('\n-- withdrawals: the request reserves, a human decides --');
+// alice sits at 80 here. A withdrawal takes the money out of her spendable
+// balance immediately, so she cannot queue a payout and spend it on a dare
+// while it waits. Nothing reaches a chain until an admin approves.
+const TON_ADDR = 'UQCkR8mP2vXqL7nD4tYbZ3wF9sJhK6aQ1eR5uT8iO0pN2mCv';
+// alice is banned by this point, which is worth asserting on its own.
+eq((await call('POST','/api/wallet/withdraw',{ user:alice, body:{ usdt:10, chain:'ton', address:TON_ADDR } })).code,403,'a banned user cannot withdraw');
+// A clean wallet to run the flow through.
+blob.users['9'] = { id:'9', username:'dana', name:'Dana', isAdmin:false, banned:false, joinedAt: 0 };
+const dana = blob.users['9'];
+await call('POST','/api/wallet/deposit',{ user:admin, body:{ username:'dana', usdt:80 } });
+eq((await call('GET','/api/me',{ user:dana })).body.user.credits,80,'dana funded');
+
+eq((await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:1, chain:'ton', address:TON_ADDR } })).code,400,'below the minimum is refused');
+eq((await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:10, chain:'ton', address:'not-an-address' } })).code,400,'a malformed address never touches the balance');
+eq((await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:10, chain:'sol', address:TON_ADDR } })).code,400,'a TON address is refused on the Solana rail');
+eq((await call('GET','/api/me',{ user:dana })).body.user.credits,80,'and dana still has all of it');
+eq((await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:500, chain:'ton', address:TON_ADDR } })).code,400,'you cannot withdraw more than you have');
+
+r = await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:10, chain:'ton', address:TON_ADDR } });
+eq(r.code,200,'a valid request is accepted');
+eq(r.body.fee,0.2,'2% fee is taken from the amount');
+eq(r.body.net,9.8,'and the rest is what gets sent');
+const wid = r.body.id;
+eq((await call('GET','/api/me',{ user:dana })).body.user.credits,70,'the whole $10 leaves her balance at once');
+eq((await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:10, chain:'ton', address:TON_ADDR } })).code,400,'a second request while one is pending is refused');
+
+eq((await call('GET','/api/admin/withdrawals',{ user:bob })).code,403,'the queue is admin-only');
+r = await call('GET','/api/admin/withdrawals',{ user:admin });
+eq(r.body.withdrawals.length,1,'the request is in the review queue');
+eq(r.body.withdrawals[0].address,TON_ADDR,'with the address it should go to');
+
+console.log('\n-- a declined withdrawal gives everything back, fee included --');
+r = await call('POST',`/api/admin/withdraw/${wid}/reject`,{ user:admin, body:{ reason:'address looks like an exchange' } });
+eq(r.code,200,'admin can decline it');
+eq((await call('GET','/api/me',{ user:dana })).body.user.credits,80,'dana gets the full $10 back, not $9.80');
+eq((await call('POST',`/api/admin/withdraw/${wid}/reject`,{ user:admin })).code,400,'and it cannot be decided twice');
+eq((await call('GET','/api/admin/withdrawals',{ user:admin })).body.withdrawals.length,0,'the queue is empty again');
+r = await call('GET','/api/wallet/withdrawals',{ user:dana });
+eq(r.body.withdrawals[0].status,'rejected','she can see what happened to it');
+
+console.log('\n-- approving without a wallet configured fails safe --');
+// No WALLET_MNEMONIC in tests, so the send throws. The money must come back
+// rather than sit in limbo — this is the path that matters most.
+r = await call('POST','/api/wallet/withdraw',{ user:dana, body:{ usdt:10, chain:'ton', address:TON_ADDR } });
+const wid2 = r.body.id;
+eq((await call('GET','/api/me',{ user:dana })).body.user.credits,70,'reserved again');
+r = await call('POST',`/api/admin/withdraw/${wid2}/approve`,{ user:admin });
+eq(r.code,502,'the send fails loudly');
+eq((await call('GET','/api/me',{ user:dana })).body.user.credits,80,'and every cent is returned');
+eq((await call('GET','/api/wallet/withdrawals',{ user:dana })).body.withdrawals[0].status,'failed','recorded as failed, not silently dropped');
 
 console.log('\n-- submit guards in LEDGER mode --');
 // alice is banned by now, so use a fresh hunter to reach the slot checks

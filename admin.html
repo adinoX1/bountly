@@ -253,6 +253,7 @@ input:focus{border-color:var(--lime)}
     <button class="active" data-p="overview">Overview</button>
     <button data-p="queue">Review <span class="cnt" id="cnt-queue"></span></button>
     <button data-p="disputes">Disputes <span class="cnt" id="cnt-disputes"></span></button>
+    <button data-p="payouts">Payouts <span class="cnt" id="cnt-payouts"></span></button>
     <button data-p="users">Users <span class="cnt" id="cnt-users"></span></button>
     <button data-p="dares">Dares <span class="cnt" id="cnt-dares"></span></button>
     <button data-p="ledger">Ledger <span class="cnt" id="cnt-ledger"></span></button> <button data-p="deposits">Deposits</button>
@@ -261,6 +262,7 @@ input:focus{border-color:var(--lime)}
   <div class="panel active" data-panel="overview" id="p-overview"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="queue" id="p-queue"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="disputes" id="p-disputes"><div class="loading">Loading…</div></div>
+  <div class="panel" data-panel="payouts" id="p-payouts"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="users" id="p-users"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="dares" id="p-dares"><div class="loading">Loading…</div></div>
   <div class="panel" data-panel="ledger" id="p-ledger"><div class="loading">Loading…</div></div> <div class="panel" data-panel="deposits" id="p-deposits"><div class="loading">Loading…</div></div>
@@ -317,6 +319,7 @@ function load(which){
   if(which==='overview') loadOverview();
   else if(which==='queue') loadQueue();
   else if(which==='disputes') loadDisputes();
+  else if(which==='payouts') loadPayouts();
   else if(which==='users') loadUsers();
   else if(which==='dares') loadDares();
   else if(which==='ledger') loadLedger(); else if(which==='deposits') loadDeposits();
@@ -468,6 +471,46 @@ async function loadDisputes(){
       const reason=$('#dn-'+b.dataset.uh).value.trim();
       try{ await api('/api/dash/dispute/'+b.dataset.uh+'/resolve',{method:'POST',body:JSON.stringify({uphold:true,reason})}); loadDisputes(); }catch(e){alert(e.message);} });
   }catch(e){ $('#p-disputes').innerHTML=`<div class="loading">${esc(e.message)}</div>`; }
+}
+
+// ---- payouts ----
+// Every withdrawal waits here. The money has already left the person's
+// spendable balance, so nothing is at risk while it sits — but somebody is
+// waiting on it, so the queue is oldest first and the age is on the card.
+async function loadPayouts(){
+  try{ const {withdrawals}=await api('/api/dash/withdrawals');
+    const c=$('#cnt-payouts'); if(c) c.textContent=withdrawals.length||'';
+    const owed=withdrawals.reduce((a,x)=>a+x.net,0);
+    const sum=`<div class="sumbar"><div class="chip"><b>${withdrawals.length}</b>to review</div><div class="chip lime"><b>${owed.toFixed(2)}</b>USDT to send</div></div>`;
+    $('#p-payouts').innerHTML=sum+(withdrawals.length?withdrawals.map((x,i)=>`
+      <div class="card">
+        <div class="row"><div>
+          <b>#${x.id} · @${esc(x.user)}</b>
+          <span class="tag ${x.chain==='sol'?'blue':'live'}">${x.chain==='sol'?'Solana · USDC':'TON · USDT'}</span>
+          <div class="sub">asks ${x.gross} · fee ${x.fee} · <b>sends ${x.net}</b> · ${fdate(x.at)}</div>
+        </div></div>
+        <div class="sub" style="margin:8px 0;font-family:var(--mono);font-size:11px;word-break:break-all">${esc(x.address)}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-lime btn-sm" data-ap="${x.id}">Send ${x.net}</button>
+          <input id="wr-${x.id}" placeholder="reason (if declining)" style="flex:1;min-width:120px">
+          <button class="btn btn-out btn-sm" data-rj="${x.id}" style="border-color:var(--red);color:var(--red)">Decline</button>
+        </div>
+      </div>`).join(''):'<div class="loading">Nothing waiting to be paid out. ✓</div>');
+    $('#p-payouts').querySelectorAll('[data-ap]').forEach(b=>b.onclick=async()=>{
+      // This one actually moves money on a chain and cannot be taken back.
+      if(!confirm('Send this on-chain now? A transfer cannot be reversed.')) return;
+      b.disabled=true; b.textContent='Sending…';
+      try{ await api('/api/dash/withdraw/'+b.dataset.ap+'/approve',{method:'POST',body:'{}'}); }
+      catch(e){ alert(e.message); }
+      loadPayouts();
+    });
+    $('#p-payouts').querySelectorAll('[data-rj]').forEach(b=>b.onclick=async()=>{
+      const reason=$('#wr-'+b.dataset.rj).value.trim();
+      if(!reason){ alert('Say why — the person gets told, and "declined" on its own explains nothing.'); return; }
+      try{ await api('/api/dash/withdraw/'+b.dataset.rj+'/reject',{method:'POST',body:JSON.stringify({reason})}); loadPayouts(); }
+      catch(e){ alert(e.message); }
+    });
+  }catch(e){ $('#p-payouts').innerHTML=`<div class="loading">${esc(e.message)}</div>`; }
 }
 
 // ---- users ----

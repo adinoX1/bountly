@@ -38,6 +38,9 @@ const tx = (ctx, fn) => wallet.withClient(ctx.pool, fn);
 // out review notifications (new dispute, etc.)
 const adminUsers = ctx => (ctx.db && ctx.db.users ? Object.values(ctx.db.users) : []).filter(u => u.isAdmin);
 const userByName = (ctx, uname) => (ctx.db && ctx.db.users ? Object.values(ctx.db.users) : []).find(u => u.username === uname);
+// The ledger keys people by @username; notify() wants a Telegram id. Anything
+// money-related has to tell the person, so bridge the two in one place.
+const notifyUser = (ctx, uname, text) => { const u = userByName(ctx, uname); if (u && ctx.notify) ctx.notify(u.id, text); };
 
 // tell a rejected hunter, and point out they can appeal (LEDGER reject was silent before)
 async function notifyDecision(ctx, pool, subId, reason) {
@@ -285,25 +288,93 @@ export async function ledgerApi(ctx) {
     return true;
   }
 
-  // ----- withdraw: BOOKKEEPING ONLY -----
-  // This debits the ledger to match an on-chain send that has ALREADY happened.
-  // Nothing here moves real funds (ton.sendUsdt is not wired up yet), so it is
-  // admin-only and demands the tx hash as proof — otherwise a user could zero
-  // their own balance and never receive anything.
+  // ----- withdrawals: request, review, send -----
+  //
+  // Every withdrawal waits for a human. That is a deliberate choice, not a
+  // missing feature: the server holds the mnemonic for the whole float, so
+  // any bug that lets a request name its own destination is a direct drain.
+  // A reviewer between the request and the send is the thing that turns that
+  // from "everything is gone" into "somebody noticed".
+  //
+  // The money leaves the user's spendable balance at request time, so nobody
+  // can queue a payout and spend the same balance on a dare while it waits.
+
   if (p === '/api/wallet/withdraw' && method === 'POST') {
-    if (!user.isAdmin) { json(res, 403, { error: 'admin only — user-initiated withdrawals are not live yet' }); return true; }
+    if (user.banned) { json(res, 403, { error: 'banned' }); return true; }
     const b = ctx.body || {};
-    const amt = Number(b.usdt); if (!(amt > 0)) { json(res, 400, { error: 'bad amount' }); return true; }
-    const txhash = String(b.txhash || '').trim();
-    if (!txhash) { json(res, 400, { error: 'txhash required — record only a send that already settled on-chain' }); return true; }
-    const who = String(b.username || uname).trim();
+    const amt = Number(b.usdt);
+    if (!(amt > 0)) { json(res, 400, { error: 'bad amount' }); return true; }
     try {
-      await tx(ctx, c => wallet.withdraw(c, who, amt, txhash));
-      json(res, 200, { ok: true, balance: await wallet.balance(pool, who) });
-    } catch (e) {
-      const dup = /duplicate key|unique|uniq_withdraw_ref/i.test(e.message);
-      json(res, 400, { error: dup ? 'this txhash was already recorded' : e.message });
+      const r = await tx(ctx, c => wallet.requestWithdrawal(c, {
+        userId: uname, usdt: amt, chain: String(b.chain || 'ton'), address: b.address }));
+      for (const a of adminUsers(ctx))
+        ctx.notify?.(a.id, `💸 Withdrawal request #${r.id} — @${uname} wants $${r.net} out on ${String(b.chain).toUpperCase()}.\nReview it in the dashboard.`);
+      json(res, 200, { ok: true, ...r, balance: await wallet.balance(pool, uname) });
+    } catch (e) { json(res, 400, { error: e.message }); }
+    return true;
+  }
+
+  if (p === '/api/wallet/withdrawals' && method === 'GET') {
+    json(res, 200, { withdrawals: await wallet.userWithdrawals(pool, uname),
+      min: wallet.WITHDRAW_MIN, feeBps: wallet.WITHDRAW_FEE_BPS });
+    return true;
+  }
+
+  if ((p === '/api/admin/withdrawals' || p === '/api/dash/withdrawals') && method === 'GET') {
+    if (p.startsWith('/api/admin') && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
+    json(res, 200, { withdrawals: await wallet.pendingWithdrawals(pool) });
+    return true;
+  }
+
+  let wm;
+  if ((wm = p.match(/^\/api\/(admin|dash)\/withdraw\/(\d+)\/(approve|reject)$/)) && method === 'POST') {
+    if (wm[1] === 'admin' && !user.isAdmin) { json(res, 403, { error: 'admin only' }); return true; }
+    const id = Number(wm[2]);
+    const w = await wallet.getWithdrawal(pool, id);
+    if (!w) { json(res, 404, { error: 'no such withdrawal' }); return true; }
+    if (w.status !== 'requested') { json(res, 400, { error: `already ${w.status}` }); return true; }
+
+    if (wm[3] === 'reject') {
+      const reason = String((ctx.body || {}).reason || '').trim() || 'declined by review';
+      await tx(ctx, c => wallet.cancelWithdrawal(c, id, { status: 'rejected', reason }));
+      notifyUser(ctx, w.user, `Your withdrawal of $${w.net} was declined.\n${reason}\nThe full $${w.gross} is back in your balance.`);
+      json(res, 200, { ok: true });
+      return true;
     }
+
+    // Approve = actually send. Order matters: the chain call happens first and
+    // only a confirmed send settles the ledger. If the send throws, the reserve
+    // goes back to the user and nothing was lost but time.
+    let sent;
+    try {
+      const mod = w.chain === 'ton' ? await import('./ton.js') : await import('./solana.js');
+      sent = w.chain === 'ton'
+        ? await mod.sendUsdt({ toAddress: w.address, amountUsdt: w.net })
+        : await mod.sendUsdc({ toAddress: w.address, amountUsdc: w.net });
+    } catch (e) {
+      // The send never landed, so the fee was never earned — cancelWithdrawal
+      // returns the gross, fee included.
+      await tx(ctx, c => wallet.cancelWithdrawal(c, id, { status: 'failed', reason: e.message }));
+      notifyUser(ctx, w.user, `Your withdrawal could not be sent: ${e.message}\nThe full $${w.gross} is back in your balance.`);
+      json(res, 502, { error: 'send failed — funds returned: ' + e.message });
+      return true;
+    }
+    const ref = sent.ref || sent.signature || sent.txhash;
+    try {
+      await tx(ctx, c => wallet.settleWithdrawal(c, id, ref));
+    } catch (e) {
+      // The worst case, and the one worth shouting about: the money is gone
+      // from the chain but the books still show it reserved. Left in
+      // 'requested' on purpose so it is visible and fixable by hand rather
+      // than quietly reconciled into looking fine.
+      console.error(`WITHDRAWAL ${id} SENT BUT NOT SETTLED ref=${ref}:`, e.message);
+      for (const a of adminUsers(ctx))
+        ctx.notify?.(a.id, `🚨 Withdrawal #${id} was SENT on-chain (${ref}) but the ledger write failed: ${e.message}\nDo not re-send. Settle it by hand.`);
+      json(res, 500, { error: 'sent on-chain but the ledger did not settle — do not retry, see logs' });
+      return true;
+    }
+    notifyUser(ctx, w.user, `✅ $${w.net} is on its way to your ${w.chain === 'ton' ? 'TON' : 'Solana'} wallet.`);
+    json(res, 200, { ok: true, ref });
     return true;
   }
 
