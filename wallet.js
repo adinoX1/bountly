@@ -285,15 +285,30 @@ export async function disputeQueue(db) {
     appealedAt: s.appealed_at ? new Date(s.appealed_at).getTime() : null }));
 }
 
-export async function leaderboard(db) {
+// A leaderboard is the people who have won something. Two things used to leak
+// onto it that do not belong: accounts with no wins at all — which, below 20
+// winners, filled the board with `0 wins · $0` rows and meant the "nobody has
+// won yet" empty state could never show — and admins, whom the JSON-mode board
+// has always excluded. The two modes disagreeing is the actual bug; this is the
+// side that was wrong.
+//
+// `exclude` is a list of usernames because that is how the ledger keys accounts.
+// The caller has to do the Telegram-id -> username lookup, since ADMIN_IDS is
+// ids and owner_id is names. That mismatch is the same one behind the standing
+// plan to re-key accounts by id; until then the bridge lives at the call site.
+export async function leaderboard(db, { exclude = [] } = {}) {
   const r = await db.query(`
-    SELECT a.owner_id AS username,
-      (SELECT count(*) FROM submissions s WHERE s.hunter_id=a.owner_id AND s.status='approved')::int AS wins,
-      COALESCE((SELECT SUM(e.amount) FROM ledger_entries e
-                  JOIN ledger_tx t ON t.id=e.tx_id
-                 WHERE t.type='payout' AND e.account_id=a.id AND e.amount>0),0) AS earned
-      FROM accounts a WHERE a.kind='user'
-     ORDER BY wins DESC, earned DESC LIMIT 20`);
+    SELECT * FROM (
+      SELECT a.owner_id AS username,
+        (SELECT count(*) FROM submissions s WHERE s.hunter_id=a.owner_id AND s.status='approved')::int AS wins,
+        COALESCE((SELECT SUM(e.amount) FROM ledger_entries e
+                    JOIN ledger_tx t ON t.id=e.tx_id
+                   WHERE t.type='payout' AND e.account_id=a.id AND e.amount>0),0) AS earned
+        FROM accounts a
+       WHERE a.kind='user' AND NOT (a.owner_id = ANY($1::text[]))
+    ) q
+     WHERE q.wins > 0
+     ORDER BY q.wins DESC, q.earned DESC LIMIT 20`, [exclude]);
   return r.rows.map(x => ({ username: x.username, wins: x.wins, earnedUsdt: toUsdt(x.earned) }));
 }
 

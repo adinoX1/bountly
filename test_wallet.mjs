@@ -35,6 +35,22 @@ eq(await W.balance(db, 'bob'), 9, 'bob paid 9');
 console.log('\n-- read models --');
 const lb = await W.leaderboard(db);
 ok(lb.find(x => x.username === 'alice' && x.wins === 1 && x.earnedUsdt === 9), 'leaderboard alice 1 win / 9 earned');
+// 'creator' funded the dare and won nothing. A board that lists everyone who
+// ever opened the app is a user list, not a leaderboard — and while it is
+// padded with 0-win rows the "nobody has won yet" empty state can never show.
+ok(!lb.some(x => x.username === 'creator'), 'somebody with no wins is not on the board');
+ok(lb.every(x => x.wins > 0), 'every row on the board has at least one win');
+eq(lb.length, 2, 'only the two winners are listed');
+// Admins are excluded in JSON mode and used not to be here. The caller passes
+// usernames because that is what the ledger keys accounts by.
+const lbNoAlice = await W.leaderboard(db, { exclude: ['alice'] });
+ok(!lbNoAlice.some(x => x.username === 'alice'), 'an excluded username is left off');
+ok(lbNoAlice.some(x => x.username === 'bob'), 'excluding one player keeps the rest');
+eq((await W.leaderboard(db, { exclude: [] })).length, 2, 'an empty exclude list drops nobody');
+ok((await W.leaderboard(db)).length === 2, 'omitting the option entirely still works');
+// ordering is the whole point of a board
+const tie = await W.leaderboard(db);
+ok(tie[0].wins >= tie[tie.length - 1].wins, 'rows come back ranked by wins');
 ok((await W.recentTxns(db, 50)).some(t => t.type === 'payout'), 'ledger txns include payouts');
 
 console.log('\n-- user deposit history (wallet screen) --');

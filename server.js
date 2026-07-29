@@ -812,7 +812,10 @@ const server = http.createServer(async (req, res) => {
 
     if (p === "/api/leaderboard"){
       const earn = {}; db.txns.filter(t => t.type === "payout").forEach(t => earn[t.to] = (earn[t.to] || 0) + t.amount);
-      const rows = Object.values(db.users).filter(x => !x.isAdmin).map(x => ({ username: x.username, wins: x.wins, earned: earn[x.username] || 0 }))
+      // Winners only, same as the ledger path. Everyone who ever opened the app
+      // has a user record, so without this the board is mostly `0 wins · $0`.
+      const rows = Object.values(db.users).filter(x => !x.isAdmin && x.wins > 0)
+        .map(x => ({ username: x.username, wins: x.wins, earned: earn[x.username] || 0 }))
         .sort((a, b) => b.wins - a.wins || b.earned - a.earned).slice(0, 20);
       return json(res, 200, { leaderboard: rows });
     }

@@ -212,7 +212,12 @@ export async function ledgerApi(ctx) {
 
   // ----- leaderboard -----
   if (p === '/api/leaderboard' && method === 'GET') {
-    json(res, 200, { leaderboard: (await wallet.leaderboard(pool)).map(x => ({ username: x.username, wins: x.wins, earned: x.earnedUsdt })) });
+    // ADMIN_IDS is Telegram ids; ledger accounts are keyed by username. The
+    // JSON user map is the only place that holds both, so the translation
+    // happens here rather than inside the query.
+    const exclude = Object.values(ctx.db?.users || {})
+      .filter(u => u.isAdmin && u.username).map(u => u.username);
+    json(res, 200, { leaderboard: (await wallet.leaderboard(pool, { exclude })).map(x => ({ username: x.username, wins: x.wins, earned: x.earnedUsdt })) });
     return true;
   }
 

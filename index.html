@@ -1236,7 +1236,7 @@ function go(t){ document.querySelectorAll('#nav button').forEach(x=>x.classList.
   // The feed takes the whole viewport, so the page behind it must not scroll.
   document.body.classList.toggle('immersive',t==='bounties');
   window.scrollTo({top:0,behavior:'smooth'}); haptic('light');
-  if(t==='bounties')loadChallenges(); if(t==='board')loadBoard(); if(t==='admin')loadQueue(); if(t==='profile')loadProfile(); }
+  if(t==='bounties')loadChallenges(); if(t==='admin')loadQueue(); if(t==='profile')loadProfile(); }
 tabs.forEach(b=>b.onclick=()=>go(b.dataset.tab));
 // The hero's two buttons are gone with it — "browse" only scrolled to a grid
 // that is now the first thing on screen, and "post a dare" is the Create tab.
@@ -1599,14 +1599,11 @@ $('#create-btn').onclick=async()=>{
   finally{ createBtn.disabled=false; delete createBtn.dataset.busy; createBtn.textContent=createLabel; calc(); }
 };
 
-// ---- leaderboard ----
-async function loadBoard(){
-  try{ const {leaderboard}=await api('/api/leaderboard');
-    $('#board').innerHTML=leaderboard.length?leaderboard.map((p,i)=>{const cls=i<3?['r1','r2','r3'][i]:'rx';
-      return `<div class="lbrow"><div class="rank ${cls}">${i+1}</div><div class="who"><span class="plink" data-player="${esc(p.username)}">@${esc(p.username)}</span><div class="wins">${p.wins} wins</div></div><div class="earn">${money(p.earned)}</div></div>`;}).join('')
-      :'<div style="color:var(--muted)">No hunters yet — be the first.</div>';
-  }catch(e){ $('#board').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
-}
+// There is no leaderboard in the app. A renderer for one used to sit here,
+// filling a container no markup ever declared, reachable from no tab and no
+// view — so nothing called it and its selector resolved to null. Removed
+// rather than left lying around. The API endpoint is still served on both
+// backends if a board is ever wanted again.
 
 // ---- profile ----
 async function loadProfile(){

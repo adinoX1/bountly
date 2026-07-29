@@ -180,5 +180,53 @@ ok(/expiresInDays/.test(html), 'it is posted as expiresInDays');
 ok(new RegExp('expiresInDays').test(fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8')), 'server.js reads expiresInDays');
 ok(new RegExp('expiresInDays').test(fs.readFileSync(path.join(__dirname, 'server_ledger.js'), 'utf8')), 'server_ledger.js reads expiresInDays');
 
+// These come from finding loadBoard(): a whole feature that rendered into a
+// #board no markup contained, with no tab and no view, so nothing could reach
+// it and nothing ever complained. Dead wiring is invisible at runtime — that
+// one survived a full redesign. Generic on purpose: they fail for ANY tab or
+// selector wired to nothing, not just the case that prompted them.
+console.log('\n-- every tab has a view, and every view a tab --');
+const tabIds  = [...html.matchAll(/data-tab="([a-z]+)"/g)].map(m => m[1]);
+const viewIds = [...html.matchAll(/data-view="([a-z]+)"/g)].map(m => m[1]);
+// 'in'/'out' are the deposit/withdraw sheet toggle, not navigation tabs.
+const navTabs = [...new Set(tabIds)].filter(t => t !== 'in' && t !== 'out');
+// the admin tab and its view are both injected at runtime for admins only
+const runtime = new Set(['admin']);
+for (const t of navTabs) {
+  if (runtime.has(t)) continue;
+  ok(viewIds.includes(t), `tab "${t}" has a matching <section data-view="${t}">`);
+}
+for (const v of new Set(viewIds)) ok(navTabs.includes(v), `view "${v}" is reachable from the tab bar`);
+// go() must actually load something for each tab that has data to fetch
+const goBody = grab('go');
+for (const t of ['bounties', 'profile']) {
+  ok(new RegExp(`t==='${t}'\\)\\s*load`).test(goBody), `go('${t}') triggers its loader`);
+}
+// and it must not dispatch to a loader that no longer exists
+for (const m of goBody.matchAll(/load([A-Z]\w+)\(/g)) {
+  ok(src.includes(`function load${m[1]}(`), `go() calls load${m[1]}(), which is defined`);
+}
+
+console.log('\n-- no selector points at an element that does not exist --');
+const ids = new Set([...html.matchAll(/\bid="([A-Za-z0-9_-]+)"/g)].map(m => m[1]));
+// ids built at runtime: assigned via .id = '…', or interpolated into a template
+for (const m of html.matchAll(/\.id\s*=\s*['"]([A-Za-z0-9_-]+)['"]/g)) ids.add(m[1]);
+for (const m of html.matchAll(/id=\\?["']([A-Za-z0-9_-]+)\\?["']/g)) ids.add(m[1]);
+const reached = new Set([...src.matchAll(/\$\('#([A-Za-z0-9_-]+)'\)/g)].map(m => m[1]));
+for (const m of src.matchAll(/getElementById\('([A-Za-z0-9_-]+)'\)/g)) reached.add(m[1]);
+const dangling = [...reached].filter(i => !ids.has(i));
+eq(dangling.length, 0, `every $('#id') resolves${dangling.length ? ' — dangling: ' + dangling.join(', ') : ''}`);
+
+console.log('\n-- the app has no leaderboard, and no leftovers of one --');
+ok(!/loadBoard/.test(src), 'loadBoard() is gone, not left dangling');
+ok(!/id="board"/.test(html), 'no #board container');
+ok(!/data-(tab|view)="board"/.test(html), 'no board tab or view');
+// The endpoint stays: it is correct, both backends serve it, and a board may
+// be wanted later. It is the client-side half that was dead weight.
+for (const f of ['server.js', 'server_ledger.js']) {
+  const s = fs.readFileSync(path.join(__dirname, f), 'utf8');
+  ok(/\/api\/leaderboard/.test(s), `${f} still serves /api/leaderboard`);
+}
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
