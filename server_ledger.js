@@ -110,20 +110,73 @@ export async function ledgerApi(ctx) {
 
   // ----- list challenges -----
   if (p === '/api/challenges' && method === 'GET') {
-    json(res, 200, { challenges: (await wallet.listDares(pool)).map(d => ({ ...d, winners: [] })) });
+    // viewer so each slide knows whether this person already reacted
+    json(res, 200, { challenges: (await wallet.listDares(pool, { viewer: uname })).map(d => ({ ...d, winners: [] })) });
     return true;
   }
 
   // ----- single challenge detail -----
   let m = p.match(/^\/api\/challenges\/(\d+)$/);
   if (m && method === 'GET') {
-    const d = (await wallet.listDares(pool)).find(x => x.id === Number(m[1]));
+    const d = (await wallet.listDares(pool, { viewer: uname })).find(x => x.id === Number(m[1]));
     if (!d) { json(res, 404, { error: 'not found' }); return true; }
     d.winners = await winnersOf(pool, d.id);
     const mine = await pool.query(
       `SELECT 1 FROM submissions WHERE dare_id=$1 AND hunter_id=$2 AND status<>'rejected' LIMIT 1`, [d.id, uname]);
     d.mySubmission = mine.rows.length > 0;
+    // The sheet is where a conversation fits; the slide only carries counts.
+    d.reactionSet = wallet.REACTIONS;
+    d.reactionCounts = (await wallet.reactionsFor(pool, d.id, uname)).counts;
+    d.commentList = await wallet.commentsFor(pool, d.id);
     json(res, 200, { challenge: d });
+    return true;
+  }
+
+  // ----- reactions -----
+  // One tap toggles. Sending the same emoji again clears it, a different one
+  // switches, and an explicit null removes — all one row per person per dare.
+  let rx = p.match(/^\/api\/challenges\/(\d+)\/react$/);
+  if (rx && method === 'POST') {
+    if (user.banned) { json(res, 403, { error: 'banned' }); return true; }
+    const want = (ctx.body || {}).emoji ?? null;
+    try {
+      const cur = await wallet.reactionsFor(pool, rx[1], uname);
+      const next = (want !== null && cur.mine === want) ? null : want;
+      json(res, 200, await wallet.react(pool, { dareId: rx[1], userId: uname, emoji: next }));
+    } catch (e) { json(res, 400, { error: e.message }); }
+    return true;
+  }
+
+  // ----- comments -----
+  let cm = p.match(/^\/api\/challenges\/(\d+)\/comments$/);
+  if (cm && method === 'GET') {
+    json(res, 200, { comments: await wallet.commentsFor(pool, cm[1]), max: wallet.COMMENT_MAX });
+    return true;
+  }
+  if (cm && method === 'POST') {
+    if (user.banned) { json(res, 403, { error: 'banned' }); return true; }
+    try {
+      const c = await wallet.addComment(pool, { dareId: cm[1], userId: uname, body: (ctx.body || {}).body });
+      // Tell the creator somebody is talking about their dare — but not when
+      // they are the one talking, and never for their own reply to themselves.
+      const d = (await wallet.listDares(pool)).find(x => x.id === Number(cm[1]));
+      if (d && d.creator && d.creator !== uname)
+        notifyUser(ctx, d.creator, `💬 @${uname} commented on your dare ${d.code}:\n"${c.body.slice(0, 140)}"`);
+      json(res, 200, { comment: c });
+    } catch (e) { json(res, 400, { error: e.message }); }
+    return true;
+  }
+
+  // Author or admin only, enforced in wallet.deleteComment. Soft delete, so a
+  // reported comment survives for whoever has to look at the report.
+  // POST rather than DELETE: every other mutation here is a POST, the CORS
+  // policy only advertises GET/POST/OPTIONS, and the body parser only runs for
+  // POST. One odd verb would be the only thing on this server needing all three
+  // widened.
+  let cd = p.match(/^\/api\/comments\/(\d+)\/delete$/);
+  if (cd && method === 'POST') {
+    try { json(res, 200, await wallet.deleteComment(pool, cd[1], { by: uname, isAdmin: !!user.isAdmin })); }
+    catch (e) { json(res, /not your comment/.test(e.message) ? 403 : 400, { error: e.message }); }
     return true;
   }
 

@@ -661,11 +661,27 @@ main{max-width:640px;padding:96px var(--pad) 130px!important;position:relative;z
   box-shadow:var(--glow-red),inset 0 1px 0 rgba(255,255,255,.35)}
 .rbtn.take .ic svg{width:28px;height:28px}
 .rbtn:disabled{opacity:.45;cursor:not-allowed}
+/* Reaction. The rail carries the one-tap version — 🔥 on, 🔥 off — and the
+   sheet carries the full set, because five emoji do not fit under a thumb
+   without turning the rail into a menu. A reaction you have given reads as
+   solid rather than glass, so the state is legible at a glance. */
+.rbtn .emo{font-size:23px;line-height:1;filter:saturate(1.1)}
+.rbtn.react.on .ic{background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  border-color:transparent;box-shadow:var(--glow-red)}
+.rbtn.react.on .n{color:var(--red-bright)}
+/* The pop is the whole reward for tapping. Skipped under reduced-motion. */
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1)}}
+.rbtn.react.burst .ic{animation:pop .32s ease-out}
 @media(max-width:520px){
-  .s-rail{width:58px;gap:14px}
+  .s-rail{width:58px;gap:11px}
   .rbtn .ic{width:46px;height:46px}
   .rbtn.take .ic{width:54px;height:54px}
+  .rbtn .emo{font-size:21px}
+  /* Seven things now live in the rail. The reward is the tallest of them and
+     the one that can afford to give a few pixels back. */
+  .r-reward .n{font-size:29px}
 }
+@media(max-height:700px){.s-rail{gap:9px}.r-reward .n{font-size:26px}}
 
 /* Feed furniture: filter, counter, swipe hint — floating over the slides. */
 .market-head{position:fixed;top:66px;left:0;right:0;z-index:20;
@@ -923,6 +939,53 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
 .drop .t{font-family:var(--strong);font-weight:700}
 .drop .s{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 .d-winners .w{color:var(--green);background:rgba(62,207,142,.12);border-radius:999px}
+
+/* ---- reactions and comments in the sheet ----------------------------- */
+/* The full emoji set. The rail only does 🔥; this is where you pick another. */
+.rx-set{display:flex;gap:8px;flex-wrap:wrap}
+.rx{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;
+  background:rgba(255,255,255,.07);border:1px solid var(--line);color:var(--txt);
+  cursor:pointer;transition:transform .14s,background .18s,border-color .18s;
+  -webkit-tap-highlight-color:transparent;font-family:var(--mono);font-size:12px}
+.rx .e{font-size:17px;line-height:1}
+.rx .c{font-variant-numeric:tabular-nums;color:var(--txt2)}
+.rx:hover{background:rgba(255,255,255,.12);border-color:var(--line2)}
+.rx:active{transform:scale(.94)}
+.rx.on{background:var(--red-soft);border-color:var(--red-line)}
+.rx.on .c{color:var(--red-bright)}
+
+.cm{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:start;
+  padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.cm:last-child{border-bottom:none}
+.cm-av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;padding:0;
+  background:linear-gradient(135deg,var(--red-bright),var(--red-deep));color:#fff;
+  font-family:var(--strong);font-weight:800;font-size:13px;border:none;cursor:pointer;
+  -webkit-tap-highlight-color:transparent}
+.cm-body{min-width:0}
+.cm-top{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+.cm-at{font-family:var(--mono);font-size:10px;color:var(--dim)}
+/* A comment is user text. It wraps, and a pasted 60-character word does not
+   push the sheet sideways. */
+.cm-txt{font-size:13.5px;line-height:1.5;color:var(--txt);overflow-wrap:anywhere}
+.cm-x{background:none;border:none;color:var(--dim);font-size:19px;line-height:1;
+  cursor:pointer;padding:2px 4px;transition:color .15s}
+.cm-x:hover{color:var(--red-bright)}
+.cm-empty{color:var(--muted);font-size:13px;padding:6px 0 10px}
+
+.cm-form{display:flex;gap:8px;align-items:flex-end;margin-top:12px}
+.cm-form textarea{flex:1;resize:none;overflow-y:auto;min-height:40px;max-height:120px;
+  padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);
+  border:1px solid var(--line);color:var(--txt);font-family:var(--strong);
+  font-size:13.5px;line-height:1.4}
+.cm-form textarea:focus{outline:none;border-color:var(--red-line);background:rgba(255,255,255,.09)}
+.cm-send{width:40px;height:40px;flex-shrink:0;border-radius:50%;border:none;cursor:pointer;
+  display:grid;place-items:center;color:#fff;transition:opacity .18s,transform .14s;
+  background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 6px 16px -8px rgba(255,46,59,.7)}
+.cm-send svg{width:19px;height:19px}
+.cm-send:active{transform:scale(.92)}
+.cm-send:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+.cm-hint{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:6px;min-height:12px}
 
 /* ---- deposit sheet --------------------------------------------------- */
 .dep-bal{background:transparent;border:0;background-image:none}
@@ -1286,6 +1349,43 @@ function shareDare(id){
   else window.open(u,'_blank');
 }
 
+// ---- reactions -----------------------------------------------------------
+// The rail is the one-tap version: 🔥 on, 🔥 off. The full set lives in the
+// sheet, because five emoji under a thumb turns a rail into a menu.
+//
+// Painted before the request resolves and rolled back if it fails. A reaction
+// is worth nothing if the tap does not answer instantly, and there is no harm
+// in being briefly optimistic about a number nobody is paid on.
+const REACT_DEFAULT='🔥';
+async function toggleReaction(btn, emoji){
+  const id=btn.dataset.react; if(!id||btn.dataset.busy) return;
+  const c=CH_BY_ID[id];
+  const was=c?c.myReaction:null;
+  const want=emoji||REACT_DEFAULT;
+  const next=(was===want)?null:want;
+  btn.dataset.busy='1';
+  paintReaction(btn,next,(c?(c.reactions||0):0)+((next?1:0)-(was?1:0)));
+  if(next) btn.classList.add('burst');
+  haptic(next?'medium':'light');
+  try{
+    const r=await api(`/api/challenges/${id}/react`,{method:'POST',body:JSON.stringify({emoji:want})});
+    // The server is the authority on the tally — two people tapping at once
+    // makes the optimistic guess wrong by one.
+    if(c){ c.myReaction=r.mine; c.reactions=r.total; }
+    paintReaction(btn,r.mine,r.total);
+  }catch(e){
+    if(c){ paintReaction(btn,was,c.reactions||0); }
+    toast(e.message);
+  }finally{ delete btn.dataset.busy; setTimeout(()=>btn.classList.remove('burst'),340); }
+}
+function paintReaction(btn,mine,total){
+  btn.classList.toggle('on',!!mine);
+  btn.setAttribute('aria-pressed',mine?'true':'false');
+  btn.setAttribute('aria-label',mine?'Remove your reaction':'React to this dare');
+  const e=btn.querySelector('.emo'); if(e) e.textContent=mine||REACT_DEFAULT;
+  const n=btn.querySelector('.n'); if(n) n.textContent=Math.max(0,total);
+}
+
 // The clock is the only thing on a slide that goes stale while you look at
 // it. Repaint just those chips rather than re-rendering the whole feed.
 setInterval(()=>{
@@ -1358,6 +1458,16 @@ async function loadChallenges(){
               <span class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="2.5" y="6" width="13" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
               <span class="n">${b.subs}</span>
             </button>
+            <button class="rbtn react${b.myReaction?' on':''}" data-react="${b.id}"
+              aria-pressed="${b.myReaction?'true':'false'}"
+              aria-label="${b.myReaction?'Remove your reaction':'React to this dare'}">
+              <span class="ic"><span class="emo">${b.myReaction||'🔥'}</span></span>
+              <span class="n">${b.reactions||0}</span>
+            </button>
+            <button class="rbtn" data-comments="${b.id}" aria-label="${b.comments||0} comment${b.comments===1?'':'s'}">
+              <span class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 9 9 0 0 1-3.6-.7L4 21l1.4-4.2A8.3 8.3 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+              <span class="n">${b.comments||0}</span>
+            </button>
             <button class="rbtn" data-share="${b.id}" aria-label="Share this dare">
               <span class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 15V3M8 7l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
               Share
@@ -1378,6 +1488,12 @@ async function loadChallenges(){
       c.onclick=(e)=>{
         if(e.target.closest('[data-player]')) return;
         if(e.target.closest('[data-share]')){ shareDare(c.dataset.open); return; }
+        // Reacting must not also open the sheet — the rail sits on top of the
+        // slide, so every one of these needs its own way out of this handler.
+        const rb=e.target.closest('[data-react]');
+        if(rb){ toggleReaction(rb); return; }
+        const cb=e.target.closest('[data-comments]');
+        if(cb){ haptic('light'); openDetail(cb.dataset.comments,{focus:'comments'}); return; }
         // Double tap opens it too — the gesture every feed has trained into
         // people. A single tap still works, so nothing is hidden behind it.
         const now=Date.now(); const dbl=now-lastTap<300; lastTap=now;
@@ -1406,7 +1522,7 @@ function countUp(){
 }
 
 // ---- challenge DETAIL + upload ----
-async function openDetail(id){
+async function openDetail(id,{focus=null}={}){
   try{
     const {challenge:c}=await api('/api/challenges/'+id);
     const segs=Array.from({length:c.maxWinners},(_,i)=>`<div class="seg ${i<c.slots[0]?'on':''}"></div>`).join('');
@@ -1443,8 +1559,34 @@ async function openDetail(id){
       ${proofHtml}
       <div class="d-box"><div class="lbl">The dare</div>${esc(c.desc)}</div>
       <div class="d-box"><div class="lbl">Rules of proof</div>${esc(c.rules)}</div>
-      ${action}`;
+      ${action}
+      <!-- The full reaction set, which the rail cannot hold. -->
+      <div class="d-box" id="rx-box"><div class="lbl">React</div>
+        <div class="rx-set">${(c.reactionSet||[]).map(e=>{
+          const n=(c.reactionCounts||{})[e]||0;
+          return `<button class="rx${c.myReaction===e?' on':''}" data-emo="${e}"
+            aria-pressed="${c.myReaction===e?'true':'false'}" aria-label="React ${e}">
+            <span class="e">${e}</span>${n?`<span class="c">${n}</span>`:''}</button>`;
+        }).join('')}</div>
+      </div>
+      <div class="d-box" id="cm-box"><div class="lbl">Comments <span id="cm-n">${(c.commentList||[]).length||''}</span></div>
+        <div id="cm-list"></div>
+        <div class="cm-form">
+          <textarea id="cm-in" rows="1" maxlength="500" placeholder="Say something…"></textarea>
+          <button class="cm-send" id="cm-send" aria-label="Post comment">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 12l16-8-6 16-3-6-7-2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="cm-hint" id="cm-hint"></div>
+      </div>`;
     $('#detail').classList.add('show');
+    CM_ID=id; renderComments(c.commentList||[]);
+    bindReactionSet(id,c);
+    bindCommentForm(id);
+    // Arriving from the comment button on the rail should land on the comments,
+    // not at the top of a sheet with the conversation two screens down.
+    if(focus==='comments') requestAnimationFrame(()=>
+      $('#cm-box')?.scrollIntoView({behavior:'smooth',block:'center'}));
 
     // wire upload
     const drop=$('#drop'), input=$('#vfile'), prev=$('#vprev');
@@ -1463,6 +1605,115 @@ async function openDetail(id){
     }
   }catch(e){ toast(e.message); }
 }
+// ---- comments ------------------------------------------------------------
+// Which dare the open sheet belongs to. The sheet is a singleton, so the list
+// and the form need to know what they are posting against.
+let CM_ID=null;
+
+function renderComments(list){
+  const el=$('#cm-list'); if(!el) return;
+  const n=$('#cm-n'); if(n) n.textContent=list.length||'';
+  if(!list.length){ el.innerHTML='<div class="cm-empty">Nothing said yet. Go first.</div>'; return; }
+  el.innerHTML=list.map(c=>{
+    // Your own comment, and an admin on anybody's, gets a way to take it back.
+    const mine=ME&&ME.username===c.player;
+    const can=mine||(ME&&ME.isAdmin);
+    return `<div class="cm" data-cm="${c.id}">
+      <button class="cm-av" data-player="${esc(c.player)}" aria-label="See @${esc(c.player)}">${esc((c.player||'?')[0]).toUpperCase()}</button>
+      <div class="cm-body">
+        <div class="cm-top"><span class="plink" data-player="${esc(c.player)}">@${esc(c.player)}</span>
+          <span class="cm-at">${timeAgo(c.at)}</span></div>
+        <div class="cm-txt">${esc(c.body)}</div>
+      </div>
+      ${can?`<button class="cm-x" data-del-cm="${c.id}" aria-label="Delete this comment">&times;</button>`:''}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-del-cm]').forEach(b=>b.onclick=()=>deleteComment(b.dataset.delCm));
+}
+
+// Short and relative. An exact timestamp on a comment is noise; "4m" is what
+// somebody actually wants to know.
+function timeAgo(ms){
+  const s=Math.max(0,(Date.now()-ms)/1000);
+  if(s<60) return 'now';
+  if(s<3600) return Math.floor(s/60)+'m';
+  if(s<86400) return Math.floor(s/3600)+'h';
+  return Math.floor(s/86400)+'d';
+}
+
+function bindReactionSet(id,c){
+  const box=$('#rx-box'); if(!box) return;
+  box.querySelectorAll('.rx').forEach(b=>b.onclick=async()=>{
+    if(b.dataset.busy) return; b.dataset.busy='1';
+    const want=b.dataset.emo;
+    haptic(c.myReaction===want?'light':'medium');
+    try{
+      const r=await api(`/api/challenges/${id}/react`,{method:'POST',body:JSON.stringify({emoji:want})});
+      c.myReaction=r.mine; c.reactionCounts=r.counts;
+      // Repaint the whole set: switching emoji changes two counts, not one.
+      box.querySelectorAll('.rx').forEach(x=>{
+        const e=x.dataset.emo, n=r.counts[e]||0;
+        x.classList.toggle('on',r.mine===e);
+        x.setAttribute('aria-pressed',r.mine===e?'true':'false');
+        const cc=x.querySelector('.c');
+        if(n&&cc) cc.textContent=n;
+        else if(n) x.insertAdjacentHTML('beforeend',`<span class="c">${n}</span>`);
+        else if(cc) cc.remove();
+      });
+      // The slide behind the sheet is showing a stale tally.
+      const cached=CH_BY_ID[id];
+      if(cached){ cached.myReaction=r.mine; cached.reactions=r.total; }
+      const rail=document.querySelector(`.rbtn.react[data-react="${id}"]`);
+      if(rail) paintReaction(rail,r.mine,r.total);
+    }catch(e){ toast(e.message); }
+    finally{ delete b.dataset.busy; }
+  });
+}
+
+function bindCommentForm(id){
+  const inp=$('#cm-in'), btn=$('#cm-send'), hint=$('#cm-hint'); if(!inp||!btn) return;
+  // Grow with the text rather than scrolling a one-line box.
+  const grow=()=>{ inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px';
+    const left=500-inp.value.length;
+    hint.textContent = left<80 ? `${left} characters left` : '';
+    btn.disabled=!inp.value.trim(); };
+  inp.oninput=grow; grow();
+  // Enter posts, Shift+Enter is a newline — the messenger convention, and this
+  // app lives inside one.
+  inp.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); post(); } };
+  btn.onclick=post;
+  async function post(){
+    const body=inp.value.trim(); if(!body||btn.dataset.busy) return;
+    btn.dataset.busy='1'; btn.disabled=true;
+    try{
+      const {comment}=await api(`/api/challenges/${id}/comments`,{method:'POST',body:JSON.stringify({body})});
+      inp.value=''; grow(); haptic('success');
+      const list=await api(`/api/challenges/${id}/comments`);
+      renderComments(list.comments);
+      bumpCommentCount(id,list.comments.length);
+      $('#cm-list').lastElementChild?.scrollIntoView({behavior:'smooth',block:'nearest'});
+    }catch(e){ toast(e.message); }
+    finally{ delete btn.dataset.busy; btn.disabled=!inp.value.trim(); }
+  }
+}
+
+async function deleteComment(cid){
+  try{
+    await api(`/api/comments/${cid}/delete`,{method:'POST'});
+    haptic('light');
+    const list=await api(`/api/challenges/${CM_ID}/comments`);
+    renderComments(list.comments);
+    bumpCommentCount(CM_ID,list.comments.length);
+  }catch(e){ toast(e.message); }
+}
+
+// Keep the count on the slide behind the sheet honest without a full reload.
+function bumpCommentCount(id,n){
+  const c=CH_BY_ID[id]; if(c) c.comments=n;
+  const b=document.querySelector(`.rbtn[data-comments="${id}"] .n`);
+  if(b) b.textContent=n;
+}
+
 function submitProof(id, file){
   if(!file){ toast('Choose a video first'); return; }
   const _sb=$('#submit-proof'); if(_sb){ if(_sb.dataset.busy==='1') return; _sb.dataset.busy='1'; _sb.disabled=true; _sb.style.opacity='.6'; } const _rel=()=>{ if(_sb){ _sb.dataset.busy=''; _sb.disabled=false; _sb.style.opacity=''; } }; const fd=new FormData(); fd.append('video',file,file.name);

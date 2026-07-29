@@ -213,6 +213,80 @@ ok(!sw.expired.some(e => e.code === dc4code), 'a dare with a live dispute is not
 ok(sw.blocked.some(b => b.code === dc4code), 'it is reported as blocked');
 eq((await W.listDares(db)).find(d => d.id === dc4.dareId).status, 'open', 'contested dare stays open');
 
+// ============================================================
+// Reactions and comments. The feed used to be one-way: you watched and left.
+// Neither of these touches the ledger, and the invariant check at the bottom
+// of this file is what proves that.
+console.log('\n-- reactions: one per person, tapping twice toggles --');
+const rd = (await W.listDares(db))[0];
+let rr = await W.react(db, { dareId: rd.id, userId: 'alice', emoji: '🔥' });
+eq(rr.total, 1, 'one reaction after one tap');
+eq(rr.mine, '🔥', 'and it is remembered as mine');
+eq(rr.counts['🔥'], 1, 'counted under the emoji tapped');
+// A double-tap on a phone must not become two rows — the primary key decides.
+rr = await W.react(db, { dareId: rd.id, userId: 'alice', emoji: '🔥' });
+eq(rr.total, 1, 'reacting again does not add a second row');
+rr = await W.react(db, { dareId: rd.id, userId: 'alice', emoji: '💀' });
+eq(rr.total, 1, 'switching emoji still leaves one reaction');
+eq(rr.mine, '💀', 'and mine is the new one');
+eq(rr.counts['🔥'], undefined, 'the old emoji drops to zero');
+rr = await W.react(db, { dareId: rd.id, userId: 'bob', emoji: '🔥' });
+eq(rr.total, 2, 'a second person adds a second reaction');
+eq(rr.mine, '🔥', 'the reply reports the reaction of whoever just tapped');
+// `mine` is per-viewer, so the same dare answers two people differently.
+eq((await W.reactionsFor(db, rd.id, 'bob')).mine, '🔥', 'bob sees bob');
+eq((await W.reactionsFor(db, rd.id, 'alice')).mine, '💀', 'alice sees alice');
+eq((await W.reactionsFor(db, rd.id, 'stranger')).mine, null, 'a stranger sees nothing of theirs');
+eq((await W.reactionsFor(db, rd.id)).total, 2, 'the total is the same for everybody');
+rr = await W.react(db, { dareId: rd.id, userId: 'alice', emoji: null });
+eq(rr.total, 1, 'clearing removes only mine');
+await throws(() => W.react(db, { dareId: rd.id, userId: 'alice', emoji: '🍕' }), 'an emoji outside the set');
+await throws(() => W.react(db, { dareId: 99999, userId: 'alice', emoji: '🔥' }), 'reacting to a dare that does not exist');
+await throws(() => W.react(db, { dareId: rd.id, userId: '', emoji: '🔥' }), 'reacting as nobody');
+
+console.log('\n-- the feed carries the counts --');
+const withCounts = (await W.listDares(db, { viewer: 'bob' })).find(d => d.id === rd.id);
+eq(withCounts.reactions, 1, 'listDares reports the reaction count');
+eq(withCounts.myReaction, '🔥', 'and what the viewer picked');
+eq((await W.listDares(db, { viewer: 'nobody' })).find(d => d.id === rd.id).myReaction, null,
+  'somebody who never reacted sees null');
+eq((await W.listDares(db)).find(d => d.id === rd.id).myReaction, null, 'no viewer means no opinion');
+
+console.log('\n-- comments --');
+const c1 = await W.addComment(db, { dareId: rd.id, userId: 'alice', body: '  this one is  unhinged  ' });
+eq(c1.body, 'this one is unhinged', 'whitespace is collapsed, not preserved');
+eq(c1.player, 'alice', 'the author is recorded');
+ok(c1.at > 0, 'and when');
+await W.addComment(db, { dareId: rd.id, userId: 'bob', body: 'doing it tonight' });
+eq((await W.commentsFor(db, rd.id)).length, 2, 'both comments come back');
+eq((await W.commentsFor(db, rd.id))[0].body, 'this one is unhinged', 'oldest first, like a conversation');
+eq((await W.listDares(db)).find(d => d.id === rd.id).comments, 2, 'the feed count keeps up');
+await throws(() => W.addComment(db, { dareId: rd.id, userId: 'alice', body: '   ' }), 'an empty comment');
+await throws(() => W.addComment(db, { dareId: rd.id, userId: 'alice', body: 'x'.repeat(W.COMMENT_MAX + 1) }), 'a comment over the limit');
+await throws(() => W.addComment(db, { dareId: 99999, userId: 'alice', body: 'hello' }), 'commenting on a missing dare');
+// Exactly at the limit is allowed — an off-by-one here is a silent annoyance.
+ok((await W.addComment(db, { dareId: rd.id, userId: 'carol', body: 'y'.repeat(W.COMMENT_MAX) })).body.length === W.COMMENT_MAX,
+  'a comment exactly at the limit is accepted');
+
+console.log('\n-- comments are rate limited --');
+// carol already used one of her burst above
+for (let i = 0; i < W.COMMENT_BURST - 1; i++) await W.addComment(db, { dareId: rd.id, userId: 'carol', body: 'spam ' + i });
+await throws(() => W.addComment(db, { dareId: rd.id, userId: 'carol', body: 'one too many' }), 'the burst limit');
+// the limit is per person, not global
+ok(await W.addComment(db, { dareId: rd.id, userId: 'dana', body: 'unaffected' }), 'somebody else is not blocked by it');
+
+console.log('\n-- deleting a comment --');
+await throws(() => W.deleteComment(db, c1.id, { by: 'bob' }), 'deleting somebody else\'s comment');
+ok((await W.deleteComment(db, c1.id, { by: 'alice' })).ok, 'the author can delete their own');
+ok(!(await W.commentsFor(db, rd.id)).some(c => c.id === c1.id), 'and it is gone from the list');
+// Soft delete: the row survives so a report can still be looked at.
+eq((await db.query('SELECT count(*)::int AS n FROM dare_comments WHERE id=$1', [c1.id])).rows[0].n, 1,
+  'the row is kept, only flagged');
+ok((await W.deleteComment(db, c1.id, { by: 'alice' })).already, 'deleting twice is not an error');
+const c2 = await W.addComment(db, { dareId: rd.id, userId: 'bob', body: 'admin will remove this' });
+ok((await W.deleteComment(db, c2.id, { by: 'zed', isAdmin: true })).ok, 'an admin can delete anyone\'s');
+await throws(() => W.deleteComment(db, 999999, { by: 'alice' }), 'deleting a comment that does not exist');
+
 console.log('\n-- invariants --');
 eq(await W.conservation(db), 0, 'everything sums to 0');
 ok((await W.reconcile(db)).length === 0, 'cached balances match journal');

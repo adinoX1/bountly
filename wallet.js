@@ -68,6 +68,35 @@ CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status);
 -- database is a better place to enforce that than a button's disabled state.
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_open_withdrawal
   ON withdrawals(user_id) WHERE status = 'requested';
+-- ---- reactions and comments --------------------------------------------
+-- The feed was one-way: you watched and left. Neither of these touches money,
+-- so neither goes near the ledger — they are their own tables and a bug in
+-- them can cost engagement but never a balance.
+--
+-- One reaction per person per dare, enforced by the primary key rather than by
+-- a disabled button: tapping twice is a toggle, and a double-tap on a phone
+-- must not become two rows.
+CREATE TABLE IF NOT EXISTS dare_reactions (
+  dare_id  BIGINT NOT NULL REFERENCES dares(id) ON DELETE CASCADE,
+  user_id  TEXT   NOT NULL,
+  emoji    TEXT   NOT NULL,
+  at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (dare_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reactions_dare ON dare_reactions(dare_id);
+-- Comments are soft-deleted. A hard DELETE loses the evidence of what was
+-- said, which is exactly what you want to look at after a report.
+CREATE TABLE IF NOT EXISTS dare_comments (
+  id         BIGSERIAL PRIMARY KEY,
+  dare_id    BIGINT NOT NULL REFERENCES dares(id) ON DELETE CASCADE,
+  user_id    TEXT   NOT NULL,
+  body       TEXT   NOT NULL CHECK (length(body) BETWEEN 1 AND 500),
+  at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  deleted_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_comments_dare ON dare_comments(dare_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_user ON dare_comments(user_id, at DESC);
 `;
 
 export const MICRO = L.MICRO;
@@ -242,7 +271,9 @@ export async function balance(db, userId) {
   return toUsdt(await L.balanceOf(db, 'user', String(userId)));
 }
 
-export async function listDares(db) {
+// `viewer` is the signed-in username, used only to answer "did I already react
+// to this one". Passing null is fine and gives an anonymous view of the feed.
+export async function listDares(db, { viewer = null } = {}) {
   const r = await db.query(`
     SELECT d.*,
       (SELECT count(*) FROM submissions s WHERE s.dare_id=d.id AND s.status='approved')::int AS won,
@@ -252,16 +283,116 @@ export async function listDares(db) {
       -- dare. Approved only: nothing under review is ever handed out.
       (SELECT s.video FROM submissions s
          WHERE s.dare_id=d.id AND s.status='approved' AND s.video IS NOT NULL
-         ORDER BY s.created_at ASC LIMIT 1) AS proof
-    FROM dares d ORDER BY d.id DESC`);
+         ORDER BY s.created_at ASC LIMIT 1) AS proof,
+      -- Counts travel with the dare so the feed needs one round trip, not one
+      -- per slide. Soft-deleted comments do not count toward the total.
+      (SELECT count(*) FROM dare_reactions x WHERE x.dare_id=d.id)::int AS reactions,
+      (SELECT count(*) FROM dare_comments  c WHERE c.dare_id=d.id AND c.deleted_at IS NULL)::int AS comments,
+      (SELECT x.emoji FROM dare_reactions x WHERE x.dare_id=d.id AND x.user_id=$1) AS my_reaction
+    FROM dares d ORDER BY d.id DESC`, [viewer]);
   return r.rows.map(d => ({
     id: Number(d.id), code: d.code, title: d.title, desc: d.descr, rules: d.rules,
     reward: toUsdt(d.reward), maxWinners: d.max_winners, creator: d.creator_id,
     slots: [d.won, d.max_winners], full: d.won >= d.max_winners,
     subs: d.subs, pending: d.pending, status: d.status,
     proof: d.proof ? '/uploads/' + d.proof : null,
+    reactions: d.reactions, comments: d.comments, myReaction: d.my_reaction || null,
     expiresAt: d.expires_at ? new Date(d.expires_at).getTime() : null,
   }));
+}
+
+// ---- reactions ----------------------------------------------------------
+// The set is fixed and small. Free-text emoji means arbitrary user content in
+// a place the UI renders unescaped-looking, and a long tail nobody uses.
+export const REACTIONS = ['🔥', '💀', '😂', '👏', '🤯'];
+
+// Tapping the emoji you already picked clears it; tapping a different one
+// switches. Returns the fresh tallies so the caller never has to re-read.
+export async function react(db, { dareId, userId, emoji }) {
+  if (!userId) throw new Error('who is reacting?');
+  const id = Number(dareId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('no such dare');
+  if (emoji !== null && !REACTIONS.includes(emoji)) throw new Error('not a reaction we know');
+  const d = await db.query('SELECT 1 FROM dares WHERE id=$1', [id]);
+  if (!d.rows.length) throw new Error('no such dare');
+
+  if (emoji === null) {
+    await db.query('DELETE FROM dare_reactions WHERE dare_id=$1 AND user_id=$2', [id, userId]);
+  } else {
+    // The primary key does the work: a second tap updates in place rather
+    // than adding a row, so a double-tap cannot count twice.
+    await db.query(`
+      INSERT INTO dare_reactions (dare_id, user_id, emoji) VALUES ($1,$2,$3)
+      ON CONFLICT (dare_id, user_id) DO UPDATE SET emoji=EXCLUDED.emoji, at=now()`,
+      [id, userId, emoji]);
+  }
+  return reactionsFor(db, id, userId);
+}
+
+export async function reactionsFor(db, dareId, viewer = null) {
+  const id = Number(dareId);
+  const r = await db.query(
+    `SELECT emoji, count(*)::int AS n FROM dare_reactions WHERE dare_id=$1 GROUP BY emoji`, [id]);
+  const mine = await db.query(
+    'SELECT emoji FROM dare_reactions WHERE dare_id=$1 AND user_id=$2', [id, viewer]);
+  const counts = {};
+  for (const row of r.rows) counts[row.emoji] = row.n;
+  return { counts, total: r.rows.reduce((s, x) => s + x.n, 0),
+           mine: mine.rows[0] ? mine.rows[0].emoji : null };
+}
+
+// ---- comments -----------------------------------------------------------
+export const COMMENT_MAX = 500;
+// Somebody hammering the endpoint should not be able to bury a dare. The
+// window is short because the intent is to stop a script, not to stop a person
+// with something to say.
+export const COMMENT_WINDOW_MS = 30_000;
+export const COMMENT_BURST     = 5;
+
+export async function addComment(db, { dareId, userId, body }) {
+  if (!userId) throw new Error('who is commenting?');
+  const id = Number(dareId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('no such dare');
+  // Collapse runs of whitespace so a wall of newlines cannot take over a sheet.
+  const text = String(body ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) throw new Error('say something first');
+  if (text.length > COMMENT_MAX) throw new Error(`keep it under ${COMMENT_MAX} characters`);
+  const d = await db.query('SELECT 1 FROM dares WHERE id=$1', [id]);
+  if (!d.rows.length) throw new Error('no such dare');
+
+  const recent = await db.query(
+    `SELECT count(*)::int AS n FROM dare_comments
+      WHERE user_id=$1 AND at > now() - ($2 || ' milliseconds')::interval`,
+    [userId, String(COMMENT_WINDOW_MS)]);
+  if (recent.rows[0].n >= COMMENT_BURST) throw new Error('slow down a moment');
+
+  const r = await db.query(
+    `INSERT INTO dare_comments (dare_id, user_id, body) VALUES ($1,$2,$3)
+     RETURNING id, user_id, body, at`, [id, userId, text]);
+  const c = r.rows[0];
+  return { id: Number(c.id), player: c.user_id, body: c.body, at: new Date(c.at).getTime() };
+}
+
+export async function commentsFor(db, dareId, { limit = 100 } = {}) {
+  const r = await db.query(
+    `SELECT id, user_id, body, at FROM dare_comments
+      WHERE dare_id=$1 AND deleted_at IS NULL ORDER BY at ASC LIMIT $2`,
+    [Number(dareId), Math.min(Number(limit) || 100, 200)]);
+  return r.rows.map(c => ({ id: Number(c.id), player: c.user_id, body: c.body,
+    at: new Date(c.at).getTime() }));
+}
+
+// Soft delete, so a reported comment can still be read by whoever handles the
+// report. The author can remove their own; an admin can remove anyone's.
+export async function deleteComment(db, id, { by, isAdmin = false }) {
+  const r = await db.query(
+    'SELECT user_id, deleted_at FROM dare_comments WHERE id=$1', [Number(id)]);
+  if (!r.rows.length) throw new Error('no such comment');
+  if (r.rows[0].deleted_at) return { ok: true, already: true };
+  if (!isAdmin && r.rows[0].user_id !== by) throw new Error('that is not your comment');
+  await db.query(
+    'UPDATE dare_comments SET deleted_at=now(), deleted_by=$2 WHERE id=$1', [Number(id), by]);
+  return { ok: true };
 }
 
 export async function adminQueue(db) {

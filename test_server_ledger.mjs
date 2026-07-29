@@ -238,6 +238,70 @@ eq(r.body.scanned,true,'the first one runs');
 eq((await call('POST','/api/wallet/scan',{ user:alice, body:{} })).body.scanned,false,'an immediate second one is refused');
 eq((await call('POST','/api/wallet/scan',{ user:bob, body:{} })).body.scanned,true,'another player is unaffected');
 
+// ============================================================
+// Reactions and comments over the API. alice is banned by this point in the
+// file, which makes her the right person to prove the ban actually bites.
+console.log('\n-- reactions over the API --');
+r = await call('POST',`/api/challenges/${dareId}/react`,{ user:bob, body:{ emoji:'🔥' } });
+eq(r.code,200,'bob can react');
+eq(r.body.total,1,'one reaction');
+eq(r.body.mine,'🔥','and it is his');
+// The route toggles: the same emoji again means "undo", which is what a second
+// tap on the same button has to mean.
+r = await call('POST',`/api/challenges/${dareId}/react`,{ user:bob, body:{ emoji:'🔥' } });
+eq(r.body.total,0,'the same emoji again clears it');
+eq(r.body.mine,null,'and nothing is his any more');
+r = await call('POST',`/api/challenges/${dareId}/react`,{ user:bob, body:{ emoji:'💀' } });
+eq(r.body.mine,'💀','a different emoji sets that one');
+r = await call('POST',`/api/challenges/${dareId}/react`,{ user:bob, body:{ emoji:'🍕' } });
+eq(r.code,400,'an emoji outside the set is refused');
+r = await call('POST',`/api/challenges/${dareId}/react`,{ user:alice, body:{ emoji:'🔥' } });
+eq(r.code,403,'a banned user cannot react');
+r = await call('POST','/api/challenges/999999/react',{ user:bob, body:{ emoji:'🔥' } });
+eq(r.code,400,'reacting to a dare that does not exist');
+
+console.log('\n-- the feed and the sheet carry the counts --');
+let feed = (await call('GET','/api/challenges',{ user:bob })).body.challenges.find(d=>d.id===dareId);
+eq(feed.reactions,1,'the list reports the tally');
+eq(feed.myReaction,'💀','and what this viewer picked');
+feed = (await call('GET','/api/challenges',{ user:admin })).body.challenges.find(d=>d.id===dareId);
+eq(feed.myReaction,null,'somebody else sees none of their own');
+let sheet = (await call('GET',`/api/challenges/${dareId}`,{ user:bob })).body.challenge;
+ok(Array.isArray(sheet.reactionSet)&&sheet.reactionSet.length>0,'the sheet is told which emoji exist');
+eq(sheet.reactionCounts['💀'],1,'and the per-emoji counts');
+ok(Array.isArray(sheet.commentList),'and it carries the comments inline');
+
+console.log('\n-- comments over the API --');
+r = await call('POST',`/api/challenges/${dareId}/comments`,{ user:bob, body:{ body:'  going for  this one  ' } });
+eq(r.code,200,'bob can comment');
+eq(r.body.comment.body,'going for this one','whitespace collapsed on the way in');
+const cid = r.body.comment.id;
+r = await call('GET',`/api/challenges/${dareId}/comments`,{ user:bob });
+eq(r.body.comments.length,1,'and it comes back');
+eq((await call('GET','/api/challenges',{ user:bob })).body.challenges.find(d=>d.id===dareId).comments,1,
+  'the feed count follows');
+eq((await call('POST',`/api/challenges/${dareId}/comments`,{ user:bob, body:{ body:'  ' } })).code,400,
+  'an empty comment is refused');
+eq((await call('POST',`/api/challenges/${dareId}/comments`,{ user:bob, body:{ body:'x'.repeat(501) } })).code,400,
+  'an over-long comment is refused');
+eq((await call('POST',`/api/challenges/${dareId}/comments`,{ user:alice, body:{ body:'hi' } })).code,403,
+  'a banned user cannot comment');
+eq((await call('POST','/api/challenges/999999/comments',{ user:bob, body:{ body:'hi' } })).code,400,
+  'commenting on a dare that does not exist');
+
+console.log('\n-- deleting a comment over the API --');
+eq((await call('POST',`/api/comments/${cid}/delete`,{ user:admin })).code,200,'an admin can delete anyone\'s');
+eq((await call('GET',`/api/challenges/${dareId}/comments`,{ user:bob })).body.comments.length,0,'and it is gone');
+const own = (await call('POST',`/api/challenges/${dareId}/comments`,{ user:bob, body:{ body:'mine to remove' } })).body.comment.id;
+// creator is the admin fixture, so use a plain non-author to prove the 403
+eq((await call('POST',`/api/comments/${own}/delete`,{ user:{...blob.users['3'], username:'carol', isAdmin:false} })).code,403,
+  'somebody else\'s comment cannot be deleted');
+eq((await call('POST',`/api/comments/${own}/delete`,{ user:bob })).code,200,'the author can delete their own');
+eq((await call('POST','/api/comments/999999/delete',{ user:bob })).code,400,'deleting a comment that is not there');
+
+console.log('\n-- none of it touched the money --');
+eq(await wallet.conservation(pool),0,'conservation still 0 after reactions and comments');
+
 console.log('\n-- invariants --');
 eq(await wallet.conservation(pool),0,'conservation 0');
 ok((await wallet.reconcile(pool)).length===0,'reconcile clean');

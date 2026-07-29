@@ -228,5 +228,36 @@ for (const f of ['server.js', 'server_ledger.js']) {
   ok(/\/api\/leaderboard/.test(s), `${f} still serves /api/leaderboard`);
 }
 
+console.log('\n-- comments are the first user-written text the app renders --');
+// Every other string in a slide comes from a creator posting a dare, which is
+// already escaped the same way. Comments are typed by anyone about anyone, so
+// this is the one that gets a standing test rather than a careful review.
+const renderC = grab('renderComments');
+ok(/esc\(c\.body\)/.test(renderC), 'the comment body goes through esc()');
+ok(/esc\(c\.player\)/.test(renderC), 'so does the author name');
+ok(!/innerHTML\s*=\s*[^;]*\$\{c\.body\}/.test(renderC), 'the raw body is never interpolated unescaped');
+// esc() is the whole defence, so pin down what it actually neutralises.
+const escFn = grab('esc');
+const escCtx = vm.createContext({ String });
+vm.runInContext(escFn, escCtx);
+const esc = s => vm.runInContext(`esc(${JSON.stringify(s)})`, escCtx);
+ok(!esc('<img src=x onerror=alert(1)>').includes('<img'), 'a tag cannot survive esc()');
+ok(!esc('"><script>').includes('<script'), 'nor a script tag after breaking an attribute');
+ok(!esc(`' onmouseover='x`).includes("'"), 'nor a single quote, which would break out of an attribute');
+ok(!esc('a & b').includes('& b'), 'and the ampersand is encoded first, not doubly');
+
+console.log('\n-- reactions: one tap, optimistic, reconciled --');
+const tr = grab('toggleReaction');
+ok(/paintReaction\(btn,next/.test(tr), 'the tap paints before the request, so it feels instant');
+ok(/paintReaction\(btn,r\.mine,r\.total\)/.test(tr), 'and repaints from the server answer');
+ok(/catch\s*\(e\)\s*\{[\s\S]*paintReaction\(btn,was/.test(tr), 'a failed request rolls the optimistic paint back');
+ok(/dataset\.busy/.test(tr), 'a second tap while one is in flight is ignored');
+// The rail button sits on top of the slide, whose own click opens the sheet.
+const slideHandler = src.slice(src.indexOf('c.onclick=(e)=>{'), src.indexOf('c.onkeydown'));
+for (const sel of ['data-player', 'data-share', 'data-react', 'data-comments']) {
+  ok(new RegExp(`closest\\('\\[${sel}\\]'\\)`).test(slideHandler),
+    `${sel} gets out of the slide's own click handler`);
+}
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
