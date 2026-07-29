@@ -327,10 +327,19 @@ const json = (res, code, obj) => {
 
 function challengeView(ch){
   const st = stats(ch);
+  // The winning clip travels with the dare so the feed can play the proof
+  // behind it instead of the same ambient loop on every slide.
+  // NOTE ON EXPOSURE: only *approved* proofs ever carry a URL here. A pending
+  // or rejected submission stays private to the review queue — publishing a
+  // clip somebody filmed before anyone has passed it would be a different
+  // promise than the one they uploaded under.
+  const vid = w => (w.video ? "/uploads/" + w.video : null);
+  const shown = st.winners.find(w => w.video);
   return { id: ch.id, code: ch.code, title: ch.title, desc: ch.desc, rules: ch.rules, reward: ch.reward,
     maxWinners: ch.maxWinners, creator: ch.creator, slots: [st.winners.length, ch.maxWinners], full: st.full,
     subs: st.subs, pending: st.pending, expiresAt: ch.expiresAt || null, expired: !!ch.expired,
-    winners: st.winners.map(w => ({ player: w.player, at: w.at })) };
+    proof: shown ? vid(shown) : null,
+    winners: st.winners.map(w => ({ player: w.player, at: w.at, video: vid(w) })) };
 }
 
 // ---- dare expiry (JSON mode; the LEDGER path has its own sweeper in wallet.js) ----
@@ -702,7 +711,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (LEDGER && USE_DB) { const handled = await ledgerApi({ req, res, method: req.method, path: p, url, body, files, user: u, pool, json, notify, fs, pathMod: path, crypto, UP_DIR, db, save }); if (handled) return; }
 
-    if (p === "/api/me") return json(res, 200, { user: pub(u) });
+    // appLink lets the app build a share URL. Only the server knows the bot
+    // deep link, and sharing a dare into a chat is the whole growth loop.
+    if (p === "/api/me") return json(res, 200, { user: pub(u), appLink: TG_OPEN_URL });
 
     // my activity: my challenges, my submissions, my transactions
     if (p === "/api/me/activity"){

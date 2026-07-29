@@ -75,7 +75,9 @@ export async function ledgerApi(ctx) {
   if (p === '/api/me' && method === 'GET') {
     json(res, 200, { user: { id: user.id, username: uname, name: user.name,
       credits: await wallet.balance(pool, uname), wins: user.wins || 0,
-      isAdmin: !!user.isAdmin, banned: !!user.banned } });
+      isAdmin: !!user.isAdmin, banned: !!user.banned },
+      // Same field the JSON path returns — the app builds its share link from it.
+      appLink: process.env.APP_LINK || (process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/app' : '') });
     return true;
   }
 

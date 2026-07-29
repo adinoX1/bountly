@@ -563,6 +563,16 @@ main{max-width:640px;padding:96px var(--pad) 130px!important;position:relative;z
   overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .slide .s-scrim{position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(180deg,transparent 30%,rgba(6,4,4,.35) 62%,rgba(6,4,4,.86) 100%)}
+/* A dare that has been won plays the winning clip. Muted and looped — sound
+   nobody asked for is the fastest way to get an app closed. Only the slide
+   you are actually on decodes; feedScroll() pauses the rest. */
+.slide .s-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  z-index:0;filter:brightness(.6) saturate(1.05) contrast(1.03)}
+/* Real footage needs a heavier scrim than the ambient loop, which is already
+   dimmed at source — otherwise a bright clip swallows the headline. */
+.slide.has-vid .s-scrim{background:linear-gradient(180deg,
+  rgba(6,4,4,.35) 0%,rgba(6,4,4,.2) 28%,rgba(6,4,4,.6) 62%,rgba(6,4,4,.93) 100%)}
+.slide.has-vid .wm{color:rgba(255,255,255,.055)}
 /* The reward, ghosted at the size of a building. It is what the slide is
    about, so it may as well be the wallpaper. */
 .slide .wm{position:absolute;right:-3%;top:12%;font-family:var(--display);
@@ -592,10 +602,15 @@ main{max-width:640px;padding:96px var(--pad) 130px!important;position:relative;z
 /* The rail. Everything you can do to a dare lives under your thumb. */
 .s-rail{display:flex;flex-direction:column;align-items:center;gap:16px;
   flex-shrink:0;width:66px;padding-bottom:4px}
+/* A real button now, so it is reachable by keyboard and announces itself —
+   the handle was tappable before with nothing to say so. */
 .s-rail .avatar{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;
   background:linear-gradient(135deg,var(--red-bright),var(--red-deep));
-  font-family:var(--strong);font-weight:800;color:#fff;font-size:18px;
-  border:2px solid rgba(255,255,255,.92);box-shadow:0 6px 18px -6px rgba(0,0,0,.7);cursor:pointer}
+  font-family:var(--strong);font-weight:800;color:#fff;font-size:18px;padding:0;
+  border:2px solid rgba(255,255,255,.92);box-shadow:0 6px 18px -6px rgba(0,0,0,.7);
+  cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .14s}
+.s-rail .avatar:active{transform:scale(.92)}
+.rbtn .n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px}
 .r-reward{display:flex;flex-direction:column;align-items:center;color:#fff;line-height:1}
 .r-reward .n{font-family:var(--display);font-size:33px;color:#fff;
   font-variant-numeric:tabular-nums;
@@ -715,6 +730,44 @@ body:not(.immersive) .swipe-hint{display:none}
 .sec-label{font-family:var(--strong);font-size:20px;font-weight:800;color:var(--txt);
   letter-spacing:0;text-transform:none;margin:30px 0 16px}
 .sec-label::after{display:none}
+
+/* ---- create: live preview + segmented controls ----------------------- */
+.mini-label{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--red-bright);margin-bottom:10px}
+/* A gradient border: the card is the one object on this screen that is not
+   an input, so it should not look like one. */
+.pv-card{position:relative;border:1px solid transparent;border-radius:16px;padding:18px;
+  margin-bottom:26px;overflow:hidden;backdrop-filter:blur(12px);box-shadow:var(--shadow);
+  background:linear-gradient(180deg,rgba(26,20,20,.82),rgba(13,10,10,.82)) padding-box,
+             linear-gradient(160deg,rgba(255,255,255,.18),rgba(255,46,59,.22)) border-box}
+.pv-card .pv-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.pv-card .pv-code{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.pv-card .pv-title{font-family:var(--display);font-weight:400;font-size:26px;
+  text-transform:uppercase;line-height:.94;letter-spacing:.01em;color:#fff;
+  margin-bottom:12px;word-break:break-word}
+.pv-card .pv-title.ph{color:var(--dim)}
+.pv-card .pv-reward{font-family:var(--display);font-weight:400;font-size:30px;color:var(--red);
+  letter-spacing:.01em;font-variant-numeric:tabular-nums;text-shadow:0 0 26px rgba(255,46,59,.5)}
+.pv-card .pv-reward small{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.pv-card .pv-track{height:6px;background:rgba(255,255,255,.1);border-radius:99px;
+  display:flex;gap:3px;margin-top:14px;overflow:hidden}
+.pv-card .pv-track .g{flex:1;background:rgba(255,255,255,.16);border-radius:99px}
+
+.segset{display:flex;gap:8px;flex-wrap:wrap}
+.segset button{flex:1;min-width:52px;padding:12px 8px;border-radius:12px;cursor:pointer;
+  background:rgba(255,255,255,.05);border:1px solid var(--line-strong);color:var(--txt2);
+  font-family:var(--strong);font-weight:700;font-size:14px;transition:.15s;
+  font-variant-numeric:tabular-nums;-webkit-tap-highlight-color:transparent}
+.segset button:hover{border-color:var(--muted)}
+.segset button.on{color:#fff;border-color:transparent;
+  background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 8px 20px -8px rgba(255,46,59,.6)}
+.chips-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chips-row button{padding:8px 15px;border-radius:999px;cursor:pointer;
+  background:rgba(255,255,255,.05);border:1px solid var(--line-strong);color:var(--txt2);
+  font-family:var(--mono);font-size:12.5px;transition:.15s;-webkit-tap-highlight-color:transparent}
+.chips-row button:hover{border-color:var(--red);color:#fff}
+.chips-row button.on{color:#fff;border-color:var(--red);background:var(--red-soft)}
 
 /* ---- forms ----------------------------------------------------------- */
 .create-form,.form-block{max-width:none;background:transparent;border:0;padding:0}
@@ -971,18 +1024,50 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
   <!-- ===== CREATE ===== -->
   <section class="view" data-view="create">
     <div class="page-h"><div class="section-kicker">Create a bounty</div><h2>Make it worth doing.</h2><p>Write clear rules, choose the reward and lock the full bounty before it goes live.</p></div>
+    <!-- Live preview. Escrow is an abstraction until you see the thing you
+         are paying for — this is the slide your dare will be, updating as
+         you type, so "lock $21" has a picture attached to it. -->
+    <div class="mini-label">Live preview</div>
+    <div class="pv-card">
+      <div class="pv-top"><span class="pv-code">NEW · @you</span><span class="tag live"><span class="dot"></span>live</span></div>
+      <div class="pv-title ph" id="pv-title">Your dare title…</div>
+      <div class="pv-reward" id="pv-reward">$20<small> per winner</small></div>
+      <div class="pv-track" id="pv-track"></div>
+    </div>
     <div class="form form-block create-form">
-      <div><label>Challenge title</label><input id="f-t" placeholder="e.g. Dance 30 seconds on the street"></div>
+      <div><label>Challenge title</label><input id="f-t" maxlength="120" placeholder="e.g. Dance 30 seconds on the street"></div>
       <div><label>Description</label><textarea id="f-d" rows="3" placeholder="What exactly should the hunter do?"></textarea></div>
       <div><label>Rules of proof</label><textarea id="f-r" rows="2" placeholder="One take, say the code, no cuts…"></textarea></div>
-      <div class="form-2">
-        <div><label>Reward / winner ($)</label><input id="f-rw" type="number" value="20" min="1" step="1"></div>
-        <div><label>Winners</label><select id="f-w"><option value="1">1 — fastest takes all</option><option>2</option><option>3</option><option>5</option></select></div>
+      <div><label>Reward / winner ($)</label>
+        <input id="f-rw" type="number" value="20" min="1" step="1">
+        <!-- Most people pick a round number. Let them pick it. -->
+        <div class="chips-row" id="rw-chips">
+          <button type="button" data-rw="5">$5</button><button type="button" data-rw="10">$10</button>
+          <button type="button" data-rw="20">$20</button><button type="button" data-rw="50">$50</button>
+          <button type="button" data-rw="100">$100</button>
+        </div>
       </div>
-      <div><label>Deadline</label><select id="f-x">
-        <option value="1">24 hours</option><option value="3">3 days</option>
-        <option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option>
-      </select><div class="hint">If nobody claims it by then, your escrow is refunded automatically.</div></div>
+      <!-- Segmented buttons, not <select>. A native picker on iOS looks like
+           it belongs to a different app and cannot be styled to match. The
+           select stays in the DOM, hidden, so the submit path is untouched. -->
+      <div><label>Winners</label>
+        <div class="segset" id="w-set">
+          <button type="button" data-w="1" class="on">1</button><button type="button" data-w="2">2</button>
+          <button type="button" data-w="3">3</button><button type="button" data-w="5">5</button>
+        </div>
+        <select id="f-w" hidden><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select>
+        <div class="hint" id="w-hint">Fastest valid proof takes it all.</div></div>
+      <div><label>Deadline</label>
+        <div class="segset" id="x-set">
+          <button type="button" data-x="1">24h</button><button type="button" data-x="3">3d</button>
+          <button type="button" data-x="7">7d</button><button type="button" data-x="14" class="on">14d</button>
+          <button type="button" data-x="30">30d</button>
+        </div>
+        <select id="f-x" hidden>
+          <option value="1">24 hours</option><option value="3">3 days</option>
+          <option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option>
+        </select>
+        <div class="hint">If nobody claims it by then, your escrow is refunded automatically.</div></div>
       <div class="escrow">
         <div class="eh">Escrow breakdown</div>
         <div class="ln"><span>Rewards</span><span id="e-rw">$20</span></div>
@@ -1129,14 +1214,49 @@ $('#ch-filter').querySelectorAll('button').forEach(b=>b.onclick=()=>{
 // ---- the feed ----
 // Which slide you are looking at, and the counter that says so. Snap points
 // are one viewport apart, so the index is just how far down you have scrolled.
-let feedTotal=0, feedMoney='';
+let feedTotal=0, feedAt=0, APP_LINK='', CH_BY_ID={};
 function feedScroll(){
   const grid=$('#grid'); if(!grid||!feedTotal) return;
   const i=Math.min(feedTotal,Math.round(grid.scrollTop/grid.clientHeight)+1);
-  const b=$('#strip').querySelector('b'); if(b) b.textContent=i;
+  if(i!==feedAt){
+    feedAt=i;
+    const b=$('#strip').querySelector('b'); if(b) b.textContent=i;
+    // A tick as each dare locks in, the way a picker wheel answers a thumb.
+    haptic('light');
+    // Only the slide you are on plays. Ten <video> elements decoding at once
+    // is how a feed turns a phone into a hand warmer.
+    grid.querySelectorAll('.slide').forEach((s,n)=>{
+      const v=s.querySelector('.s-vid'); if(!v) return;
+      if(n===i-1){ v.play().catch(()=>{}); } else { v.pause(); }
+    });
+  }
   // The hint has done its job the moment you scroll once.
   if(grid.scrollTop>40) $('#swipe-hint').classList.add('gone');
 }
+
+// Share a dare into a Telegram chat. This is the whole growth loop: the app
+// lives inside a messenger, so the cheapest distribution is a person sending
+// a dare to somebody they think would actually do it.
+function shareDare(id){
+  const c=CH_BY_ID[id]; if(!c) return;
+  haptic('light');
+  const text=`${c.title}\n\n${money(c.reward)} to whoever films it first · ${c.code}`;
+  const link=APP_LINK||location.origin;
+  const u=`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
+  if(tg&&tg.openTelegramLink) tg.openTelegramLink(u);
+  else if(navigator.share) navigator.share({text,url:link}).catch(()=>{});
+  else window.open(u,'_blank');
+}
+
+// The clock is the only thing on a slide that goes stale while you look at
+// it. Repaint just those chips rather than re-rendering the whole feed.
+setInterval(()=>{
+  document.querySelectorAll('[data-exp]').forEach(el=>{
+    const ms=+el.dataset.exp-Date.now();
+    el.textContent = ms<=0 ? 'expired' : leftText(ms);
+    el.classList.toggle('soon', ms<=0 || ms<24*3600e3);
+  });
+}, 30000);
 
 // ---- challenges list ----
 async function loadChallenges(){
@@ -1163,12 +1283,13 @@ async function loadChallenges(){
     // One dare per screen. The reward is ghosted across the back at the size
     // of a building, the title is shouted in Anton over the footage, and every
     // action sits in the rail under your right thumb.
+    CH_BY_ID={}; shown.forEach(b=>CH_BY_ID[b.id]=b);
     $('#grid').innerHTML=shown.map(b=>{
       const ms=b.expiresAt?b.expiresAt-Date.now():0;
       const soon=!b.full&&b.expiresAt&&ms>0&&ms<24*3600e3;
+      // data-exp lets the ticker above repaint this chip in place.
       const when=!b.expiresAt?''
-        :ms<=0?'<span class="tag clock soon">expired</span>'
-        :`<span class="tag clock${soon?' soon':''}">${leftText(ms)}</span>`;
+        :`<span class="tag clock${(soon||ms<=0)?' soon':''}" data-exp="${b.expiresAt}">${ms<=0?'expired':leftText(ms)}</span>`;
       const chips=[
         b.full?'<span class="tag full">filled</span>'
           :'<span class="tag live"><span class="dot"></span>live</span>',
@@ -1176,8 +1297,11 @@ async function loadChallenges(){
         when
       ].filter(Boolean).join('');
       const track=Array.from({length:b.maxWinners},(_,i)=>`<div class="g ${i<b.slots[0]?'on':''}"></div>`).join('');
-      return `<div class="slide${b.full?' spent':''}" data-open="${b.id}" role="button" tabindex="0">
-        <div class="s-scrim"></div>
+      // A dare with a winning clip plays that clip. Everything else falls
+      // through to the ambient loop behind the whole app.
+      const vid=b.proof?`<video class="s-vid" muted loop playsinline webkit-playsinline preload="none" src="${esc(b.proof)}"></video>`:'';
+      return `<div class="slide${b.full?' spent':''}${b.proof?' has-vid':''}" data-open="${b.id}" role="button" tabindex="0">
+        ${vid}<div class="s-scrim"></div>
         <div class="wm" aria-hidden="true">${money(b.reward)}</div>
         <div class="s-body">
           <div class="s-left">
@@ -1190,23 +1314,43 @@ async function loadChallenges(){
             </div>
           </div>
           <div class="s-rail">
-            <div class="avatar" data-player="${esc(b.creator)}">${esc((b.creator||'?')[0]).toUpperCase()}</div>
+            <button class="avatar" data-player="${esc(b.creator)}" aria-label="See @${esc(b.creator)}">${esc((b.creator||'?')[0]).toUpperCase()}</button>
             <div class="r-reward"><span class="n">${money(b.reward)}</span><span class="u">per winner</span></div>
-            <button class="rbtn take" data-open="${b.id}" aria-label="Take this dare"${b.full?' disabled':''}>
-              <span class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h13M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-              ${b.full?'Filled':'Take'}
+            <button class="rbtn" data-open="${b.id}" aria-label="${b.subs} proof${b.subs===1?'':'s'} filed">
+              <span class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="2.5" y="6" width="13" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+              <span class="n">${b.subs}</span>
+            </button>
+            <button class="rbtn" data-share="${b.id}" aria-label="Share this dare">
+              <span class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 15V3M8 7l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              Share
+            </button>
+            <button class="rbtn take" data-open="${b.id}" aria-label="${b.full?'Watch the winning proof':'Take this dare'}">
+              <span class="ic">${b.full
+                ? '<svg viewBox="0 0 24 24" fill="none"><path d="M8 5.5v13l11-6.5z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12h13M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'}</span>
+              ${b.full?'Watch':'Take'}
             </button>
           </div>
         </div>
       </div>`;
     }).join('');
     $('#grid').querySelectorAll('.slide').forEach(c=>{
-      c.onclick=(e)=>{ if(e.target.closest('[data-player]')) return; haptic('light'); openDetail(c.dataset.open); };
+      let lastTap=0;
+      const open=()=>{ haptic('light'); openDetail(c.dataset.open); };
+      c.onclick=(e)=>{
+        if(e.target.closest('[data-player]')) return;
+        if(e.target.closest('[data-share]')){ shareDare(c.dataset.open); return; }
+        // Double tap opens it too — the gesture every feed has trained into
+        // people. A single tap still works, so nothing is hidden behind it.
+        const now=Date.now(); const dbl=now-lastTap<300; lastTap=now;
+        if(dbl) haptic('medium');
+        open();
+      };
       // role="button" has to answer the keyboard the way a real button does.
-      c.onkeydown=(e)=>{ if(e.key!=='Enter'&&e.key!==' ')return; e.preventDefault(); haptic('light'); openDetail(c.dataset.open); };
+      c.onkeydown=(e)=>{ if(e.key!=='Enter'&&e.key!==' ')return; e.preventDefault(); open(); };
     });
     grid.onscroll=feedScroll;
-    feedScroll();
+    feedAt=0; feedScroll();
     grid.dataset.loaded="1";
     countUp();
   }catch(e){ $('#grid').innerHTML=`<div style="color:var(--muted)">Couldn't load: ${esc(e.message)}</div>`; }
@@ -1229,6 +1373,15 @@ async function openDetail(id){
     const {challenge:c}=await api('/api/challenges/'+id);
     const segs=Array.from({length:c.maxWinners},(_,i)=>`<div class="seg ${i<c.slots[0]?'on':''}"></div>`).join('');
     const winHtml=c.winners.length?`<div class="d-winners">${c.winners.map(w=>`<span class="w"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="display:inline-block;vertical-align:-2px;margin-right:3px"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 6H4.5v1.5A2.5 2.5 0 0 0 7 10M17 6h2.5v1.5A2.5 2.5 0 0 1 17 10M9.5 18h5M12 14v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>@${esc(w.player)}</span>`).join('')}</div>`:'';
+    // The proof is the product. If somebody has already won this one, the
+    // clip belongs in the sheet — otherwise History is a list of titles for
+    // things you never get to see.
+    const won=(c.winners||[]).filter(w=>w.video);
+    const proofHtml=won.length?`<div class="d-box"><div class="lbl">How it was won</div>
+      ${won.map(w=>`<div style="margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:7px">@${esc(w.player)}</div>
+        <video class="preview" controls preload="metadata" playsinline src="${esc(w.video)}${location.search}"></video>
+      </div>`).join('')}</div>`:'';
     let action;
     if(c.full) action=`<div class="d-box" style="color:var(--red)">Slots are filled — this dare is closed.</div>`;
     else if(!isOpen(c)) action=`<div class="d-box" style="color:var(--red)">This dare expired — the bounty went back to its creator.</div>`;
@@ -1249,6 +1402,7 @@ async function openDetail(id){
       ${c.expiresAt&&!c.full?`<div style="margin-top:10px">${deadlineTag(c.expiresAt)}</div>`:''}
       <div class="slots" style="margin:16px 0"><div class="track">${segs}</div></div>
       ${winHtml}
+      ${proofHtml}
       <div class="d-box"><div class="lbl">The dare</div>${esc(c.desc)}</div>
       <div class="d-box"><div class="lbl">Rules of proof</div>${esc(c.rules)}</div>
       ${action}`;
@@ -1353,21 +1507,58 @@ document.addEventListener('click',e=>{ const el=e.target.closest('[data-player]'
 
 // ---- create ----
 const fmt=n=>money(n);
-function calc(){const r=+$('#f-rw').value||0,n=+$('#f-w').value;
-  $('#e-rw').textContent=fmt(r*n);$('#e-f').textContent=fmt(Math.round(r*n*.05));$('#e-t').textContent=fmt(r*n+Math.round(r*n*.05))}
-$('#f-rw').oninput=calc;$('#f-w').onchange=calc;calc();
+// The segmented buttons are the interface; the hidden <select>s stay the
+// source of truth so the submit path below never had to change.
+function bindSet(setId,selId,attr){
+  const set=$(setId),sel=$(selId); if(!set||!sel) return;
+  set.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    set.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+    sel.value=b.dataset[attr]; haptic('light'); calc();
+  });
+}
+bindSet('#w-set','#f-w','w');
+bindSet('#x-set','#f-x','x');
+$('#rw-chips').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  $('#f-rw').value=b.dataset.rw; haptic('light'); calc();
+});
+
+function calc(){
+  const r=+$('#f-rw').value||0, n=+$('#f-w').value||1;
+  const total=r*n, fee=Math.round(total*.05);
+  $('#e-rw').textContent=fmt(total);$('#e-f').textContent=fmt(fee);$('#e-t').textContent=fmt(total+fee);
+  // A chip is only "chosen" if the typed amount actually matches it.
+  $('#rw-chips').querySelectorAll('button').forEach(b=>b.classList.toggle('on',+b.dataset.rw===r));
+  const wh=$('#w-hint'); if(wh) wh.textContent = n===1
+    ? 'Fastest valid proof takes it all.'
+    : `${n} people can win — each gets the full ${fmt(r)}, not a share of it.`;
+  // Live preview: the slide this dare is going to be.
+  const t=$('#f-t').value.trim();
+  const pv=$('#pv-title'); pv.textContent = t || 'Your dare title…'; pv.classList.toggle('ph',!t);
+  $('#pv-reward').innerHTML = `${fmt(r)}<small> per winner</small>`;
+  $('#pv-track').innerHTML = Array.from({length:Math.min(n,20)},()=>'<div class="g"></div>').join('');
+  // Say the shortfall on the button instead of failing on submit. The server
+  // rejects an underfunded post anyway — this just says so before you tap.
+  const btn=$('#create-btn'); if(!btn||btn.dataset.busy) return;
+  const need=total+fee, short=ME?need-ME.credits:0;
+  if(ME && short>0){ btn.dataset.short='1'; btn.textContent=`Add ${fmt(short)} to post this`; }
+  else { delete btn.dataset.short; btn.textContent='Lock bounty & post'; }
+}
+['#f-t','#f-rw'].forEach(s=>$(s).oninput=calc);
+$('#f-w').onchange=calc; $('#f-x').onchange=calc; calc();
 $('#create-btn').onclick=async()=>{
   const createBtn=$('#create-btn'); if(createBtn.disabled) return;
+  // Short on funds: the button is a door to the deposit sheet, not a dead end.
+  if(createBtn.dataset.short){ haptic('light'); openWallet(); return; }
   const title=$('#f-t').value.trim(),desc=$('#f-d').value.trim(),rules=$('#f-r').value.trim();
   const reward=+$('#f-rw').value,maxWinners=+$('#f-w').value,expiresInDays=+$('#f-x').value;
   if(!title||!desc||!rules){toast('Add a title, description and proof checklist.');return;}
   if(!Number.isFinite(reward)||reward<1){toast('Reward must be at least $1.');return;}
-  const createLabel=createBtn.textContent; createBtn.disabled=true; createBtn.textContent='Publishing...';
+  const createLabel=createBtn.textContent; createBtn.disabled=true; createBtn.dataset.busy='1'; createBtn.textContent='Publishing...';
   try{ const r=await api('/api/challenges',{method:'POST',body:JSON.stringify({title,desc,rules,reward,maxWinners,expiresInDays})});
     toast(`${r.code} posted! Locked ${money(r.locked)}.`); haptic('success'); confetti(); await refreshMe(); go('bounties');
     $('#f-t').value='';$('#f-d').value='';$('#f-r').value='';
   }catch(e){ toast(e.message); haptic('error'); }
-  finally{ createBtn.disabled=false; createBtn.textContent=createLabel; }
+  finally{ createBtn.disabled=false; delete createBtn.dataset.busy; createBtn.textContent=createLabel; calc(); }
 };
 
 // ---- leaderboard ----
@@ -1452,7 +1643,9 @@ async function loadQueue(){
 
 // ---- me / header ----
 async function refreshMe(){
-  try{ const {user}=await api('/api/me'); ME=user;
+  try{ const r=await api('/api/me'); const user=r.user; ME=user;
+    // Only the server knows the bot deep link, and every share needs it.
+    if(r.appLink) APP_LINK=r.appLink;
     // The profile identity card reads from the same payload as the header chip,
     // so a confirmed deposit updates it without waiting for a profile reload.
     const av=$('#p-av'), nm=$('#p-name'), bl=$('#p-bal');

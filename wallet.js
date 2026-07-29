@@ -166,13 +166,19 @@ export async function listDares(db) {
     SELECT d.*,
       (SELECT count(*) FROM submissions s WHERE s.dare_id=d.id AND s.status='approved')::int AS won,
       (SELECT count(*) FROM submissions s WHERE s.dare_id=d.id AND s.status<>'rejected')::int AS subs,
-      (SELECT count(*) FROM submissions s WHERE s.dare_id=d.id AND s.status='pending')::int  AS pending
+      (SELECT count(*) FROM submissions s WHERE s.dare_id=d.id AND s.status='pending')::int  AS pending,
+      -- the first approved clip, so the feed can play the proof behind the
+      -- dare. Approved only: nothing under review is ever handed out.
+      (SELECT s.video FROM submissions s
+         WHERE s.dare_id=d.id AND s.status='approved' AND s.video IS NOT NULL
+         ORDER BY s.created_at ASC LIMIT 1) AS proof
     FROM dares d ORDER BY d.id DESC`);
   return r.rows.map(d => ({
     id: Number(d.id), code: d.code, title: d.title, desc: d.descr, rules: d.rules,
     reward: toUsdt(d.reward), maxWinners: d.max_winners, creator: d.creator_id,
     slots: [d.won, d.max_winners], full: d.won >= d.max_winners,
     subs: d.subs, pending: d.pending, status: d.status,
+    proof: d.proof ? '/uploads/' + d.proof : null,
     expiresAt: d.expires_at ? new Date(d.expires_at).getTime() : null,
   }));
 }
