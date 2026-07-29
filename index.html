@@ -3,17 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#09090c">
+<meta name="theme-color" content="#0a0a0b">
 <meta name="description" content="Bountly is a Telegram mini app where real challenges meet real rewards. Do the dare, submit proof, get paid.">
 <title>Bountly</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Archivo is a variable family with a width axis, so headings, body and the
-     big money figures all come from one typeface at different widths and
-     weights. That contrast is what makes a page look drawn rather than
-     assembled — Inter at three weights is the house style of every template
-     on the internet, which is exactly what this used to look like. -->
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<!-- Anton carries every dare title and every reward: one weight, very heavy,
+     very condensed, drawn to be shouted at poster size. Archivo does the
+     ordinary work around it, and JetBrains Mono every code and figure. -->
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 /* Base tokens. The design layer near the bottom of this stylesheet restates
    them — keep the two in step, and never let --lime and --red collide again:
@@ -477,414 +475,435 @@ header{padding:0}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 
 /* ============================================================
-   DESIGN LAYER
-   One rule holds this together: the accent is money and nothing else.
-   It is allowed on the logo mark, on a reward, and on the single
-   primary action of a screen. Handles, tags, slot meters, the active
-   tab and step numbers are all neutral — when eight things shout,
-   nothing is emphasis, it is just noise.
+   DESIGN LAYER — THE FEED
+   Ported from the "Bountly — redesign preview" artifact. The app
+   is about video proof, so it is built like a video app: one
+   ambient clip behind everything, bounties as full-screen slides
+   you swipe through, an action rail down the right, and the dare
+   set in Anton so it reads as a shout rather than a list item.
+   Everything below overrides the base sheet at the top of this
+   file. Keep it to these two layers — never stack a third.
    ============================================================ */
 :root{
-  --bg:#0a0b0d;
-  --surface:#13151a;
-  --surface2:#1a1d23;
-  --line:#22252b;
-  --line2:#2e3239;
-  --txt:#edeff2;
-  --muted:#8a919b;
-  --dim:#5c626b;
-  --lime:#ff4d3d;
-  --lime-d:#e63e2f;
-  --warm:#edeff2;
-  --green:#2fbf87;
-  --red:#ff5f6d;
-  --amber:#e8a13c;
-  --blue:#4a9eff;
+  --bg:#0A0808; --bg-2:#0E0B0B; --ink:#070505;
+  --glass:rgba(24,19,19,.62); --glass-2:rgba(32,25,25,.72);
+  --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.18);
+  --line-strong:rgba(255,255,255,.18);
+  --txt:#F6F1EF; --txt2:#CFC5C1; --muted:#988C88; --dim:#6B615E;
+  --red:#FF2E3B; --red-bright:#FF5A63; --red-deep:#B00E17;
+  --red-soft:rgba(255,46,59,.14); --red-line:rgba(255,46,59,.42);
+  /* The app's accent token is spelled --lime everywhere; it is red. */
+  --lime:#FF2E3B; --lime-d:#B00E17;
+  --green:#3ECF8E; --amber:#F5B13F; --blue:#4A9EFF;
+  --warm:#F6F1EF;
+  --surface:rgba(24,19,19,.62); --surface2:rgba(32,25,25,.72);
+  --glow-red:0 0 46px -8px rgba(255,46,59,.6);
+  --shadow:0 24px 60px -24px rgba(0,0,0,.85);
+  --display:'Anton','Archivo',system-ui,sans-serif;
+  --strong:'Archivo',-apple-system,'Segoe UI',system-ui,sans-serif;
+  --sans:'Archivo',-apple-system,'Segoe UI',system-ui,sans-serif;
+  --pad:clamp(16px,4.5vw,26px); --r-lg:20px; --r-md:14px;
 }
-body{background:var(--bg)}
-header{
-  background:rgba(10,10,13,.94);
-  border-color:var(--line);
-  box-shadow:none
-}
-.head-inner{max-width:960px;padding:11px 18px}
-.brand .mark{
-  width:34px;height:34px;border-radius:10px;
-  background:var(--lime);box-shadow:none
-}
-.brand .nm{font-size:18px;color:var(--txt)}
-#me-chip{
-  background:var(--surface);border-color:var(--line);
-  color:var(--txt)!important;padding:6px 10px
-}
-main{max-width:960px;padding:0 18px 92px!important}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);overflow-x:hidden}
+/* The feed owns the viewport while you are on the bounties tab. */
+body.immersive{overflow:hidden;height:100dvh}
+::selection{background:var(--red);color:#fff}
 
-/* The hero is gone from the bounties view. This is a Mini App — by the time
-   anyone sees this screen they have already opened it from a chat, so a
-   headline selling them the idea costs a third of the first screen and
-   tells them nothing they did not know. Bounties start at the top instead. */
-.hero,.hero-receipt{display:none!important}
+/* ---- the ground ------------------------------------------------------
+   One clip, fixed, behind the whole app. It is the reason the product
+   exists — people filming themselves — so it belongs underneath rather
+   than as an illustration somewhere. Scrim and grain keep text legible. */
+#bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+  background:radial-gradient(120% 90% at 50% -10%,#1a0c0d 0%,var(--bg) 46%,var(--ink) 100%)}
+#bg .bgv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  filter:brightness(.5) saturate(1.06) contrast(1.05)}
+#bg .scrim{position:absolute;inset:0;background:
+  radial-gradient(60% 44% at 50% 0%,rgba(255,46,59,.24),transparent 62%),
+  linear-gradient(180deg,rgba(8,6,6,.18) 0%,rgba(8,6,6,.30) 42%,rgba(8,6,6,.62) 78%,rgba(8,6,6,.9) 100%)}
+#bg .grain{position:absolute;inset:-50%;opacity:.6;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E")}
+/* The grain overlay from the previous pass is redundant now. */
+body::after{display:none}
 
-.btn{
-  min-height:40px;border-radius:10px;
-  transition:background .15s,border-color .15s,transform .1s
-}
-.btn-lime{
-  background:var(--lime);border-color:var(--lime);
-  color:#fff;box-shadow:none
-}
-.btn-lime:hover{background:#ff6258;box-shadow:none;transform:none}
-.btn-lime::after{display:none}
-.btn-out{background:transparent;border-color:var(--line2)}
-.btn-out:hover{background:var(--surface2);transform:none}
-.btn:disabled{
-  cursor:not-allowed;opacity:.48;
-  transform:none!important;box-shadow:none!important
+/* ---- header (floating) ---------------------------------------------- */
+header{position:fixed;top:0;left:0;right:0;z-index:40;padding:14px var(--pad) 26px;
+  background:linear-gradient(180deg,rgba(0,0,0,.6),transparent);
+  border:0;backdrop-filter:none;pointer-events:none}
+.head-inner{max-width:1120px;margin:0 auto;padding:0;gap:14px}
+.head-inner>*{pointer-events:auto}
+.brand .mark{width:32px;height:32px;border-radius:10px;
+  background:linear-gradient(160deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 6px 18px -6px rgba(255,46,59,.7),inset 0 1px 0 rgba(255,255,255,.35)}
+.brand .nm{font-family:var(--strong);font-weight:800;font-size:18px;
+  letter-spacing:-.02em;text-transform:none;color:var(--txt);
+  text-shadow:0 1px 8px rgba(0,0,0,.6)}
+#me-chip{background:var(--glass-2)!important;border:1px solid var(--line-strong)!important;
+  color:var(--txt)!important;padding:6px 13px!important;border-radius:999px!important;
+  backdrop-filter:blur(10px);font-size:12.5px}
+
+main{max-width:640px;padding:96px var(--pad) 130px!important;position:relative;z-index:1}
+.view{display:none}
+.view.active{display:block;animation:rise .45s cubic-bezier(.2,.7,.3,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.hero,.hero-receipt,footer{display:none!important}
+
+/* ---- the feed --------------------------------------------------------
+   The bounties tab is not a page. It is fixed to the viewport and snaps,
+   one dare per screen, the way anybody under thirty already expects a
+   feed of short video to behave. */
+.view[data-view="bounties"].active{
+  position:fixed;inset:0;z-index:1;display:block;animation:none;
+  overflow:hidden;pointer-events:none}
+#grid{
+  position:absolute;inset:0;z-index:1;display:block;grid-template-columns:none;gap:0;
+  overflow-y:auto;overscroll-behavior-y:contain;pointer-events:auto;
+  scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#grid::-webkit-scrollbar{display:none}
+
+.slide{position:relative;height:100dvh;scroll-snap-align:start;scroll-snap-stop:always;
+  overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.slide .s-scrim{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 30%,rgba(6,4,4,.35) 62%,rgba(6,4,4,.86) 100%)}
+/* The reward, ghosted at the size of a building. It is what the slide is
+   about, so it may as well be the wallpaper. */
+.slide .wm{position:absolute;right:-3%;top:12%;font-family:var(--display);
+  font-size:34vh;line-height:.8;color:rgba(255,255,255,.045);
+  pointer-events:none;user-select:none;letter-spacing:.01em;font-variant-numeric:tabular-nums}
+.s-body{position:absolute;left:0;right:0;bottom:0;z-index:3;display:flex;
+  align-items:flex-end;justify-content:space-between;gap:16px;max-width:1120px;margin:0 auto;
+  padding:0 var(--pad) calc(126px + env(safe-area-inset-bottom,0)) var(--pad)}
+.s-left{max-width:min(76%,560px);min-width:0}
+.s-left .meta1{font-family:var(--mono);font-size:12px;color:rgba(255,255,255,.82);
+  margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  text-shadow:0 1px 8px rgba(0,0,0,.7)}
+.s-left h3{font-family:var(--display);font-weight:400;font-size:clamp(30px,7.5vw,56px);
+  line-height:.9;text-transform:uppercase;color:#fff;letter-spacing:.01em;
+  text-shadow:0 4px 30px rgba(0,0,0,.75);margin:0 0 14px;text-wrap:balance}
+.s-left .chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px}
+.s-left .slotline{display:flex;align-items:center;gap:12px;max-width:340px}
+.s-left .track{flex:1;height:6px;background:rgba(255,255,255,.16);border-radius:999px;
+  display:flex;gap:3px;overflow:hidden}
+.s-left .track .g{flex:1;background:rgba(255,255,255,.18);border-radius:999px}
+.s-left .track .g.on{background:linear-gradient(90deg,var(--red-deep),var(--red-bright));
+  box-shadow:0 0 10px rgba(255,46,59,.6)}
+.s-left .sl{font-family:var(--mono);font-size:11.5px;color:rgba(255,255,255,.8);
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+.slide.spent .s-left{opacity:.72}
+
+/* The rail. Everything you can do to a dare lives under your thumb. */
+.s-rail{display:flex;flex-direction:column;align-items:center;gap:16px;
+  flex-shrink:0;width:66px;padding-bottom:4px}
+.s-rail .avatar{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--red-bright),var(--red-deep));
+  font-family:var(--strong);font-weight:800;color:#fff;font-size:18px;
+  border:2px solid rgba(255,255,255,.92);box-shadow:0 6px 18px -6px rgba(0,0,0,.7);cursor:pointer}
+.r-reward{display:flex;flex-direction:column;align-items:center;color:#fff;line-height:1}
+.r-reward .n{font-family:var(--display);font-size:33px;color:#fff;
+  font-variant-numeric:tabular-nums;
+  text-shadow:0 0 24px rgba(255,46,59,.85),0 2px 10px rgba(0,0,0,.6)}
+/* The rail is 66px wide, so this label has exactly one line to live on. */
+.r-reward .u{font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.72);
+  margin-top:3px;white-space:nowrap;letter-spacing:.02em}
+.rbtn{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;
+  border:none;color:#fff;cursor:pointer;font-family:var(--strong);font-size:11px;
+  font-weight:700;-webkit-tap-highlight-color:transparent;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.rbtn .ic{width:50px;height:50px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,255,255,.13);backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.2);transition:transform .14s,background .18s}
+.rbtn .ic svg{width:24px;height:24px}
+.rbtn:hover .ic{background:rgba(255,255,255,.2)}
+.rbtn:active .ic{transform:scale(.9)}
+.rbtn.take .ic{width:60px;height:60px;border-color:transparent;
+  background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:var(--glow-red),inset 0 1px 0 rgba(255,255,255,.35)}
+.rbtn.take .ic svg{width:28px;height:28px}
+.rbtn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:520px){
+  .s-rail{width:58px;gap:14px}
+  .rbtn .ic{width:46px;height:46px}
+  .rbtn.take .ic{width:54px;height:54px}
 }
 
-/* Four boxed vanity numbers became one line. "Total dares" and "Open dares"
-   were the same fact twice, and the balance is already in the header chip. */
-.strip{
-  display:block;grid-template-columns:none;gap:0;
-  margin:0 0 14px;padding:0;
-  background:none;border:0;border-radius:0;overflow:visible;
-  font-size:13px;color:var(--muted)
-}
-.strip b{color:var(--txt);font-weight:600}
-.strip .sep{margin:0 7px;color:var(--line2)}
-
-.market-head{display:block;margin:18px 0 12px}
+/* Feed furniture: filter, counter, swipe hint — floating over the slides. */
+.market-head{position:fixed;top:66px;left:0;right:0;z-index:20;
+  display:flex;justify-content:center;margin:0;pointer-events:none}
+.market-head .filter-row{width:auto}
 .market-head .section-kicker,.market-head h2,.market-head p{display:none}
-.market-head .filter-row{width:100%}
-.section-kicker{
-  color:var(--dim);font:600 9px var(--mono);
-  letter-spacing:.09em;text-transform:uppercase
-}
-/* Segmented control: the two options sat stacked as a white slab over a text
-   link, which read as one button and one afterthought. They are equals. */
-.seg{
-  display:grid;grid-template-columns:1fr 1fr;width:100%;
-  padding:3px;gap:3px;background:var(--surface);
-  border:1px solid var(--line);border-radius:11px
-}
-.seg button{
-  padding:9px 12px;font-size:13px;font-weight:600;border-radius:8px;
-  color:var(--muted);background:transparent;border:0;cursor:pointer;
-  transition:color .15s,background .15s
-}
-.seg button.active{background:var(--surface2);color:var(--txt);box-shadow:none}
+/* Scoped to the id: .seg is also the class on each segment of the slot meter
+   inside the detail sheet, and a slot is not a pill. */
+#ch-filter{display:inline-flex;width:auto;gap:0;padding:4px;border-radius:999px;
+  background:var(--glass-2);border:1px solid var(--line-strong);
+  backdrop-filter:blur(10px);pointer-events:auto;background-image:none}
+#ch-filter button{font-family:var(--strong);font-weight:700;font-size:12.5px;
+  color:rgba(255,255,255,.65);background:none;border:none;padding:7px 16px;
+  border-radius:999px;cursor:pointer;transition:.15s;letter-spacing:0;text-transform:none}
+#ch-filter button.active{background:rgba(255,255,255,.16);color:#fff;box-shadow:none}
+/* The meter in the sheet: bars, filled in red as slots go. */
+.slots .track{background:rgba(255,255,255,.16);border-radius:999px}
+.slots .seg{padding:0;border:0;background:rgba(255,255,255,.18);border-radius:999px}
+.slots .seg.on{background:linear-gradient(90deg,var(--red-deep),var(--red-bright));
+  box-shadow:0 0 10px rgba(255,46,59,.6)}
+.strip{position:fixed;top:70px;right:var(--pad);z-index:20;display:block;
+  font-family:var(--mono);font-size:12px;color:rgba(255,255,255,.7);
+  background:rgba(0,0,0,.3);padding:5px 10px;border-radius:999px;
+  backdrop-filter:blur(6px);font-variant-numeric:tabular-nums;
+  border:0;margin:0;letter-spacing:0}
+.strip b,.strip .money{font-family:var(--mono);font-size:12px;font-weight:600;
+  color:#fff;display:inline;letter-spacing:0}
+.strip .sep{margin:0 5px;color:rgba(255,255,255,.35)}
+/* Its own band above the tab bar, so it never lands on the slot meter. */
+.swipe-hint{position:fixed;bottom:calc(80px + env(safe-area-inset-bottom,0));left:50%;
+  transform:translateX(-50%);z-index:20;display:flex;align-items:center;
+  gap:6px;color:rgba(255,255,255,.62);font-family:var(--mono);font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;transition:opacity .4s;pointer-events:none}
+.swipe-hint svg{width:14px;height:14px;animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-6px)}}
+.swipe-hint.gone{opacity:0}
+body:not(.immersive) .market-head,body:not(.immersive) .strip,
+body:not(.immersive) .swipe-hint{display:none}
 
-.grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
-/* The card lost its full-width red button. The whole card already opened the
-   bounty, so the button was a second way to do the same thing — and repeated
-   down a list it turned the screen into a wall of identical CTAs. It is a
-   real button now for the keyboard, styled as a row. */
-.card{
-  display:block;width:100%;text-align:left;font:inherit;
-  min-height:0;padding:15px 16px;border-radius:14px;
-  background:var(--surface);border:1px solid var(--line);color:var(--txt);
-  box-shadow:none;animation:none!important;cursor:pointer;
-  transition:background .15s,border-color .15s,transform .08s
-}
-.card::before,.card[data-open]::after{display:none}
-.card[data-open]:hover{
-  transform:none;background:var(--surface2);
-  border-color:var(--line2);box-shadow:none
-}
-.card[data-open]:active{transform:scale(.992)}
-.card:focus-visible{outline:2px solid var(--txt);outline-offset:2px}
+.empty-state{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(88%,420px);text-align:center;padding:30px 24px;border-radius:var(--r-lg);
+  background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px)}
+.empty-state strong{display:block;margin-bottom:6px;font-family:var(--strong);font-weight:800}
+.empty-state span{font-size:13.5px;color:var(--muted)}
 
-.c-head{display:flex;align-items:flex-start;gap:10px}
-.card h3{flex:1;min-width:0;font-size:16px;font-weight:650;line-height:1.3;letter-spacing:-.015em;margin:0}
-.c-meta{margin-top:5px;font-size:12.5px;color:var(--muted);display:flex;align-items:center;flex-wrap:wrap}
-.c-meta .sep{margin:0 6px;color:var(--line2)}
-.c-meta .soon{color:var(--amber)}
-.c-meta .code{font-family:var(--mono);font-size:11px;color:var(--dim)}
-.c-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-top:13px}
-.c-pay b{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--lime)}
-.c-pay span{font-size:11px;color:var(--dim);margin-left:5px}
-/* Slots as pips, in plain white. A red progress meter competed with the
-   reward for the eye, and the reward is the only thing worth competing for. */
-.c-slot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
-.pips{display:flex;gap:3px}
-.pip{width:6px;height:6px;border-radius:50%;background:var(--line2)}
-.pip.on{background:var(--txt)}
+/* ---- chips ----------------------------------------------------------- */
+.tag,.st{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;padding:5px 10px;border-radius:999px;display:inline-flex;
+  align-items:center;gap:6px;white-space:nowrap;backdrop-filter:blur(6px)}
+.tag .d,.tag .dot{width:6px;height:6px;border-radius:50%;background:currentColor;
+  box-shadow:0 0 8px currentColor}
+.tag.live{display:inline-flex;color:var(--red-bright);background:var(--red-soft);
+  box-shadow:inset 0 0 0 1px var(--red-line)}
+.tag.hot{color:var(--amber);background:rgba(245,177,63,.14);
+  box-shadow:inset 0 0 0 1px rgba(245,177,63,.32)}
+.tag.full{color:#fff;background:rgba(255,255,255,.14);
+  box-shadow:inset 0 0 0 1px var(--line-strong)}
+.tag.clock{color:#fff;background:rgba(255,255,255,.12);
+  box-shadow:inset 0 0 0 1px var(--line-strong)}
+.tag.clock.soon,.tag.soon{color:var(--amber)}
 
-.c-id{font-size:10px}
-.tag{font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px}
-.tag.live{display:none}
-.tag.hot{color:var(--amber);background:rgba(232,161,60,.12)}
-.tag.full{color:var(--muted);background:var(--surface2)}
-.tag.clock{color:var(--muted);background:var(--surface2)}
-.tag.clock.soon{color:var(--amber);background:rgba(232,161,60,.12)}
-.slots .track{background:var(--surface2)}
-.slots .seg.on{background:var(--txt);box-shadow:none}
-.empty-state{
-  grid-column:1/-1;text-align:center;
-  padding:38px 20px;border-radius:14px;
-  background:var(--surface);border:1px dashed var(--line2)
-}
-.empty-state strong{display:block;margin-bottom:5px;color:var(--txt)}
-.empty-state span{font-size:13px;color:var(--muted)}
+/* ---- buttons --------------------------------------------------------- */
+.btn{font-family:var(--strong);font-weight:700;font-size:14.5px;border:none;cursor:pointer;
+  border-radius:999px;padding:13px 24px;min-height:0;display:inline-flex;align-items:center;
+  justify-content:center;gap:8px;letter-spacing:0;
+  transition:transform .12s,box-shadow .22s,background .2s,border-color .2s;
+  -webkit-tap-highlight-color:transparent}
+.btn:active{transform:translateY(1px) scale(.99)}
+.btn-lime{color:#fff;border:none;background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  background-image:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 10px 26px -10px rgba(255,46,59,.8),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn-lime:hover{color:#fff;background-image:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 14px 34px -10px rgba(255,46,59,.95),inset 0 1px 0 rgba(255,255,255,.4),
+    0 0 30px -6px rgba(255,46,59,.5)}
+.btn-lime::after{display:none}
+.btn-out{color:var(--txt);background:rgba(255,255,255,.06);
+  border:1px solid var(--line-strong);backdrop-filter:blur(8px);border-radius:999px}
+.btn-out:hover{border-color:var(--muted);background:rgba(255,255,255,.1);transform:none}
+.btn-sm{padding:8px 16px;font-size:12.5px}
+.btn:disabled{cursor:not-allowed;opacity:.48;transform:none!important;box-shadow:none!important}
 
-/* Screen titles were set at landing-page scale — 27px of headline plus a
-   paragraph restating the tab you just tapped. A title is enough. */
-.page-h{margin:20px 0 16px}
-.page-h h2{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0}
-.page-h p{display:none}
-.page-h .section-kicker{margin-bottom:3px}
-.create-form{
-  max-width:620px;margin:0 auto;padding:0;
-  background:transparent;border:0;border-radius:0
-}
-.create-form input,.create-form textarea,.create-form select{
-  background:var(--surface);border-color:var(--line);
-  border-radius:10px
-}
-.create-form .escrow{
-  background:var(--surface);border-color:var(--line)
-}
-.create-form #create-btn{min-height:46px}
+/* ---- pages: headings ------------------------------------------------- */
+.page-h{margin:0 0 26px}
+.page-h h2{font-family:var(--display);font-weight:400;font-size:clamp(36px,9vw,58px);
+  text-transform:uppercase;line-height:.9;letter-spacing:.01em;margin:0 0 12px;
+  text-shadow:0 4px 30px rgba(0,0,0,.6)}
+.page-h p{display:block;color:var(--txt2);max-width:48ch;font-size:14.5px}
+.page-h .section-kicker{display:none}
+.section-kicker{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--red-bright);margin-bottom:10px}
+.sec-label{font-family:var(--strong);font-size:20px;font-weight:800;color:var(--txt);
+  letter-spacing:0;text-transform:none;margin:30px 0 16px}
+.sec-label::after{display:none}
 
-.how-intro{
-  display:block;margin:20px 0 18px;padding:0;
-  background:transparent;border:0
-}
-.how-intro h2{max-width:560px;margin:4px 0 8px;font-size:22px;letter-spacing:-.025em;line-height:1.2}
-.how-intro p{max-width:620px;font-size:14px;line-height:1.6;color:var(--muted)}
-/* Four tall empty boxes became four rows on a rail. The number is a marker,
-   not a badge — it does not need the accent to be understood as "step 2". */
-.steps{display:block;grid-template-columns:none;gap:0}
-.step{
-  position:relative;display:grid;grid-template-columns:26px 1fr;gap:13px;
-  padding:0 0 20px 0;border:0;border-radius:0;background:transparent
-}
-.step:last-child{padding-bottom:0}
-.step::after{display:none}
-.step::before{
-  content:"";position:absolute;left:12.5px;top:26px;bottom:0;width:1px;
-  background:var(--line);display:block
-}
+/* ---- forms ----------------------------------------------------------- */
+.create-form,.form-block{max-width:none;background:transparent;border:0;padding:0}
+label{font-family:var(--strong);font-size:12.5px;font-weight:700;color:var(--txt2);
+  letter-spacing:.01em;text-transform:none;margin-bottom:9px;display:block}
+input,textarea,select{width:100%;min-height:0;background:rgba(255,255,255,.05);
+  background-image:none;border:1px solid var(--line-strong);color:var(--txt);
+  font-family:var(--sans);font-size:15px;padding:13px 15px;border-radius:var(--r-md);
+  backdrop-filter:blur(6px);transition:.15s}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--red);
+  box-shadow:0 0 0 3px var(--red-soft)}
+input::placeholder,textarea::placeholder{color:var(--dim)}
+.escrow{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:18px;backdrop-filter:blur(10px)}
+.escrow .eh{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+.escrow .ln.tot b{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--red);
+  letter-spacing:0;text-shadow:0 0 24px rgba(255,46,59,.5)}
+.hint{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px}
+
+/* ---- info: timeline -------------------------------------------------- */
+.how-intro{display:block;margin:0 0 26px;padding:0;background:transparent;border:0}
+.how-intro h2{font-family:var(--display);font-weight:400;
+  font-size:clamp(36px,9vw,58px);text-transform:uppercase;line-height:.9;
+  letter-spacing:.01em;margin:0 0 12px;max-width:none}
+.how-intro p{color:var(--txt2);max-width:48ch;font-size:14.5px}
+.steps{display:block;grid-template-columns:none;gap:0;margin:6px 0 10px}
+.step{position:relative;display:grid;grid-template-columns:52px 1fr;gap:18px;
+  padding:0 0 26px;border:0;border-radius:0;background:transparent}
+.step::before{content:"";position:absolute;left:25px;top:58px;bottom:8px;width:2px;
+  display:block;background:linear-gradient(180deg,var(--red-line),rgba(255,255,255,.05))}
 .step:last-child::before{display:none}
-.step .num{
-  position:relative;z-index:1;
-  width:26px;height:26px;display:grid;place-items:center;margin:0;
-  border-radius:50%;background:var(--surface2);border:1px solid var(--line);
-  color:var(--muted);font:600 12px var(--mono)
-}
-/* The number takes column one; the heading and the copy both belong in
-   column two, or the paragraph lands in a 26px gutter one word per line. */
+.step::after{display:none}
+.step .num{position:relative;z-index:1;width:52px;height:52px;margin:0;border-radius:15px;
+  display:grid;place-items:center;font-family:var(--display);font-size:23px;font-weight:400;
+  color:#fff;background:linear-gradient(160deg,rgba(255,46,59,.32),rgba(255,46,59,.08));
+  border:1px solid var(--red-line);box-shadow:0 0 26px -6px rgba(255,46,59,.6)}
+/* The number spans both rows, or row one is 52px tall and the copy starts
+   a number's height below its own heading. */
+.step .num{grid-row:1/span 2;align-self:start}
 .step h4,.step p{grid-column:2}
-.step h4{margin:3px 0 4px;font-size:15px;font-weight:650}
-.step p{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.step h4{grid-row:1;font-family:var(--strong);font-size:17px;font-weight:800;
+  margin:6px 0 6px;text-transform:none;letter-spacing:0}
+.step p{grid-row:2}
+.step p{color:var(--muted);font-size:14px;max-width:42ch}
 
-.p-id{
-  border-radius:16px;background:var(--surface);
-  border-color:var(--line)
-}
-/* Neutral monogram: on this screen the accent belongs to the deposit button.
-   An avatar competing with it means neither reads as the thing to tap. */
-.p-av{border-radius:14px;background:var(--surface2);border-color:var(--line);color:var(--txt)}
-.p-id .who .b,.dep-bal .v{color:var(--txt)}
-.p-stats{border-radius:13px}
-.p-stats .cell{background:var(--surface)}
-.sub-row{background:var(--surface);border-color:var(--line)}
+/* ---- profile --------------------------------------------------------- */
+.p-id{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-lg);
+  backdrop-filter:blur(12px);box-shadow:var(--shadow);background-image:none}
+.p-av{width:52px;height:52px;border-radius:50%;color:#fff;border:2px solid rgba(255,255,255,.92);
+  background:linear-gradient(135deg,var(--red-bright),var(--red-deep));
+  font-family:var(--strong);font-weight:800}
+.p-id .who .b{font-family:var(--display);font-weight:400;color:#fff;font-size:44px;
+  letter-spacing:.01em;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 40px rgba(255,46,59,.5)}
+.p-stats{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-lg);
+  overflow:hidden;backdrop-filter:blur(12px);box-shadow:var(--shadow);background-image:none}
+.p-stats .cell{background:transparent}
+.p-stats .cell .v{font-family:var(--strong);font-size:22px;font-weight:800;
+  font-variant-numeric:tabular-nums;letter-spacing:0}
+.p-stats .cell .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);margin-top:8px}
+.sub-row{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-md);
+  backdrop-filter:blur(8px);background-image:none}
+.sub-row .info .t{font-family:var(--strong);font-weight:700;font-size:14px;
+  text-transform:none;letter-spacing:0}
+.sub-row .m{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:0}
+.sub-row .st{border-radius:999px;font-size:10px;padding:5px 10px;letter-spacing:.05em}
+.st.won{background:linear-gradient(180deg,var(--green),#28a56f);color:#04160e}
+.st.pending{color:var(--amber);background:rgba(245,177,63,.14)}
+.st.rejected{color:var(--red-bright);background:var(--red-soft)}
+.st.approved{color:var(--green);background:rgba(62,207,142,.14)}
+.st.disputed{color:var(--blue);background:rgba(74,158,255,.14)}
+.sub-row .why b{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em}
+.lbrow{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-md);
+  backdrop-filter:blur(8px)}
+.lbrow .rank{width:42px;height:42px;border-radius:50%;font-family:var(--strong);font-weight:800}
+.rank.r1{background:linear-gradient(160deg,var(--red-bright),var(--red-deep));color:#fff}
+.lbrow .who{font-family:var(--strong);font-weight:700;font-size:15px;
+  text-transform:none;letter-spacing:0}
+.lbrow .earn{font-family:var(--mono);font-weight:600;color:var(--green);
+  font-size:16px;letter-spacing:0}
+.pavatar{background:linear-gradient(135deg,var(--red-bright),var(--red-deep));
+  color:#fff;border:1px solid rgba(255,255,255,.4)}
+.plink{color:#fff;font-weight:600;border-bottom:1px dashed rgba(255,255,255,.35)}
+.plink:hover{border-bottom-color:#fff}
+.subnav button.active{background:rgba(255,255,255,.16);color:#fff;border-color:transparent}
+
+/* ---- the sheet -------------------------------------------------------
+   A dare opens from the bottom, the way every sheet on a phone does. The
+   markup is still the old modal; only its manners have changed. */
+.modal-overlay{background:rgba(0,0,0,.55);backdrop-filter:blur(4px);
+  align-items:flex-end;justify-content:center;padding:0}
+.modal{width:100%;max-width:600px;margin:0 auto;max-height:90dvh;
+  border-radius:26px 26px 0 0;border:1px solid var(--line-strong);border-bottom:none;
+  background:linear-gradient(180deg,rgba(30,23,23,.99),rgba(12,10,10,.99));
+  background-image:none;padding:10px 22px calc(26px + env(safe-area-inset-bottom,0));
+  box-shadow:0 -30px 80px -20px rgba(0,0,0,.9),var(--glow-red);
+  transform:translateY(101%);transition:transform .32s cubic-bezier(.2,.9,.3,1);
+  overflow-y:auto;animation:none}
+.modal-overlay.show .modal{transform:none}
+/* The grab handle every bottom sheet has, so it reads as one. */
+.modal::before{content:"";display:block;width:42px;height:4px;border-radius:99px;
+  background:rgba(255,255,255,.28);margin:6px auto 18px}
+.modal-x{background:rgba(255,255,255,.1);border:1px solid var(--line-strong);color:#fff}
+.d-code{font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none;
+  color:var(--muted);margin-bottom:8px}
+.d-title{font-family:var(--display);font-weight:400;font-size:28px;text-transform:uppercase;
+  line-height:.94;letter-spacing:.01em;margin-bottom:10px;text-wrap:balance}
+.d-reward{font-family:var(--display);font-weight:400;font-size:44px;color:var(--red);
+  letter-spacing:.01em;display:block;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 40px rgba(255,46,59,.5)}
+.d-reward::first-letter{font-size:1em;vertical-align:baseline;margin:0}
+.d-reward small{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.d-box{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:15px;margin:12px 0;font-size:14px;line-height:1.6;color:var(--txt2);
+  background-image:none}
+.d-box .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--red-bright);margin-bottom:9px}
+.drop{border:1.5px dashed var(--line-strong);border-radius:var(--r-md);padding:26px;
+  animation:none!important;background:transparent}
+.drop:hover,.drop.over{border-color:var(--red);background:var(--red-soft)}
+.drop.has{border-color:var(--green);background:rgba(62,207,142,.08)}
+.drop .t{font-family:var(--strong);font-weight:700}
+.drop .s{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.d-winners .w{color:var(--green);background:rgba(62,207,142,.12);border-radius:999px}
+
+/* ---- deposit sheet --------------------------------------------------- */
+.dep-bal{background:transparent;border:0;background-image:none}
+.dep-bal .v{font-family:var(--display);font-weight:400;font-size:54px;color:#fff;
+  letter-spacing:.01em;line-height:.9;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 44px rgba(255,46,59,.55)}
+.dep-bal .v::first-letter{font-size:1em;vertical-align:baseline;margin:0}
+.dep-cur,.dep-opts,.dep-status{background:rgba(0,0,0,.38);border:1px solid var(--line);
+  border-radius:12px}
+.dep-pick.open .dep-cur{border-color:var(--red-line)}
+.dep-opts button.on .dep-name{color:#fff}
+.dep-chips button:hover{border-color:var(--red)}
+.dep-hist .row .amt{font-family:var(--mono);color:var(--green);font-weight:600}
 .dep-status.done{color:var(--green)}
 .dep-status.done .dot{background:var(--green)}
-.d-winners .w{
-  color:var(--green);background:rgba(56,199,147,.1)
-}
-.rank.r1{background:#efc465}
 
-.modal-overlay{background:rgba(0,0,0,.75);backdrop-filter:blur(7px)}
-.modal{
-  padding:23px;border-radius:18px;
-  background:var(--surface);border-color:var(--line2)
+/* ---- tab bar --------------------------------------------------------- */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;transform:none;width:100%;
+  max-width:none;display:flex;justify-content:space-around;border:0;border-radius:0;
+  background:linear-gradient(0deg,rgba(6,4,4,.9),rgba(6,4,4,.5) 70%,transparent);
+  backdrop-filter:blur(16px);box-shadow:none;
+  padding:10px 6px calc(12px + env(safe-area-inset-bottom,0))}
+.tabbar button{flex:1;max-width:none;min-height:0;margin:0;border-radius:0;
+  display:flex;flex-direction:column;align-items:center;gap:5px;padding:5px 2px;
+  color:rgba(255,255,255,.5);font-family:var(--strong);font-size:10.5px;font-weight:700;
+  background:none;border:none;position:relative;transition:color .18s}
+.tabbar button svg{width:23px;height:23px}
+.tabbar button.active{color:#fff;background:transparent}
+.tabbar button.active::before{content:"";position:absolute;top:-10px;width:20px;height:3px;
+  border-radius:999px;background:var(--red);box-shadow:0 0 12px var(--red)}
+.tabbar button:active{transform:scale(.94)}
+@media(min-width:761px){
+  .tabbar{max-width:460px;left:50%;transform:translateX(-50%);
+    border-radius:18px 18px 0 0;border:1px solid var(--line);border-bottom:none}
 }
-.modal-x{background:var(--surface2)}
-.d-box,.dep-bal,.dep-cur,.dep-status{background:var(--bg)}
+#toast{bottom:96px!important;max-width:calc(100vw - 28px);text-align:center;
+  background:var(--glass-2);border:1px solid var(--line-strong);backdrop-filter:blur(10px)}
 
-/* The rest of what was wearing the accent and should not be. A @handle is a
-   link, a section label is furniture, and "Step 1 · Amount" shouting in red
-   made an optional field look like a problem. */
-.plink{color:var(--txt);font-weight:600;border-bottom:1px dashed var(--line2)}
-.plink:hover{border-bottom-color:var(--muted)}
-/* An empty upload target pulsing red read as a validation error before anyone
-   had done anything wrong. Calm grey, and green once a clip is actually on it. */
-.drop{border-color:var(--line2);animation:none!important}
-.drop:hover,.drop.over{border-color:var(--muted);background:var(--surface2)}
-.drop.has{border-color:var(--green);background:rgba(47,191,135,.05)}
-/* Opening the chain picker outlined the whole panel in red, which on a payment
-   sheet looks like something went wrong rather than like a menu. */
-.dep-pick.open .dep-cur,.dep-opts{border-color:var(--line2)}
-.dep-opts button.on .dep-name{color:var(--txt)}
-.dep-chips button:hover{border-color:var(--muted)}
-/* Neutral like the profile monogram, for the same reason. */
-.pavatar{background:var(--surface2);color:var(--txt);border:1px solid var(--line)}
-.subnav button.active{background:var(--surface2);color:var(--txt);border-color:var(--line2)}
-.d-box .lbl{color:var(--dim);font-size:10px}
-.dep-hist .row .amt{color:var(--txt)}
-.escrow .ln.tot b{color:var(--txt)}
-/* Money you can win keeps the accent; money you already have is just a fact. */
-.d-reward{color:var(--lime)}
-.card .reward,.p-id .who .b,.lbrow .earn{color:var(--txt)}
+/* The splash borrows the same mark. */
+.splash-mark{border-radius:20px;
+  background:linear-gradient(160deg,var(--red-bright),var(--red-deep))}
 
-.tabbar{
-  left:0;right:0;bottom:0;transform:none;
-  width:100%;max-width:none;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));
-  background:rgba(19,19,23,.96);border:0;border-top:1px solid var(--line);
-  border-radius:0;box-shadow:none
-}
-.tabbar button{
-  max-width:120px;min-height:52px;margin:auto;
-  border-radius:10px
-}
-/* The active tab is white, not red. Where you are is orientation, not an
-   offer — and it was one more thing wearing the accent. */
-.tabbar button.active{
-  color:var(--txt);background:transparent
-}
-.tabbar button.active::before{background:var(--lime);box-shadow:none}
-footer{display:none}
-#toast{
-  bottom:78px!important;max-width:calc(100vw - 28px);
-  text-align:center
-}
-
-.view.active,.lbrow,.sub-row,.p-stats .cell{animation:none!important}
-.pip{background:#3a3f47}
-
-/* ============================================================
-   SIGNATURE
-   Order on its own reads as a template. These are the bits that
-   make it look drawn: width contrast in the type, a ground with
-   some tooth to it, money set like a stamped figure, and exactly
-   one element on a screen allowed to glow.
-   ============================================================ */
-body{font-family:var(--sans);font-variation-settings:'wdth' 100}
-
-/* Grain. A flat dark fill is the tell of a generated page; a ground with a
-   little tooth stops the surfaces reading as slabs of hex. Fixed and inert
-   so it costs nothing to scroll over. */
-body::after{
-  content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;
-  opacity:.16;mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")
-}
-@media(prefers-reduced-motion:reduce){body::after{opacity:.1}}
-
-/* Brand: wide, heavy, tight. The one place the name gets to be loud. */
-.brand .nm{
-  font-family:var(--display);font-variation-settings:'wdth' 118;
-  font-weight:900;font-size:19px;letter-spacing:-.04em;text-transform:lowercase
-}
-.brand .mark{border-radius:11px;box-shadow:0 4px 14px rgba(255,77,61,.35)}
-
-/* Surfaces get a top edge and a little vertical fall, so a card looks lit
-   rather than filled. One hairline does more than a heavier border. */
-.card,.p-id,.d-box,.escrow,.sub-row,.p-stats,.modal,.dep-bal,.seg{
-  background-image:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 42%)
-}
-.card,.p-id,.modal{box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.4)}
-.card[data-open]:hover{
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 6px 20px rgba(0,0,0,.45);
-  border-color:#3a3f47
-}
-
-/* Money, set like a figure stamped on a ticket: wide, heavy, tabular so
-   columns of prices line up, with the currency mark small and raised. */
-.c-pay b,.d-reward,.p-id .who .b,.dep-bal .v,.strip b{
-  font-family:var(--display);font-variation-settings:'wdth' 112;
-  font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.045em
-}
-.c-pay b,.d-reward{display:inline-block}
-.c-pay b::first-letter,.d-reward::first-letter,.p-id .who .b::first-letter,.dep-bal .v::first-letter{
-  font-size:.56em;vertical-align:.42em;font-weight:800;margin-right:1px
-}
-.c-pay b{font-size:26px;line-height:1}
-.d-reward{font-size:44px;line-height:1}
-.p-id .who .b{font-size:34px}
-.c-pay span{
-  display:block;margin:3px 0 0;font-family:var(--mono);
-  font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)
-}
-
-/* Titles carry a touch of negative tracking and a semi-condensed cut, so a
-   long dare reads as a headline instead of as a sentence in a box. */
-.card h3,.page-h h2,.how-intro h2,.d-title,.modal h3{
-  font-family:var(--display);font-variation-settings:'wdth' 92;
-  letter-spacing:-.025em
-}
-.card h3{font-weight:700;font-size:16.5px;line-height:1.22}
-
-/* Tags stop being pills and become stamps: square, mono, letterspaced. */
-.tag,.st{
-  border-radius:3px;font-family:var(--mono);font-weight:700;
-  font-size:9px;letter-spacing:.11em;text-transform:uppercase;padding:4px 7px
-}
-.tag.hot{color:#0d0f12;background:var(--amber)}
-.c-slot span:last-child{
-  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--dim)
-}
-.c-meta{font-size:12px;color:var(--dim)}
-.c-meta .plink{color:var(--muted);border-bottom:0}
-.c-foot{
-  margin-top:12px;padding-top:12px;
-  border-top:1px solid rgba(255,255,255,.055)
-}
-
-/* The one glow in the app, on the one action that moves money. */
-.btn-lime{
-  background-image:linear-gradient(180deg,#ff6152,var(--lime));
-  box-shadow:0 1px 0 rgba(255,255,255,.22) inset,0 6px 18px rgba(255,77,61,.32);
-  letter-spacing:-.005em
-}
-.btn-lime:hover{
-  background-image:linear-gradient(180deg,#ff7365,#ff5445);
-  box-shadow:0 1px 0 rgba(255,255,255,.28) inset,0 8px 24px rgba(255,77,61,.42)
-}
-.btn{font-weight:700}
-
-/* Form labels spoke a different language from every other label in the app —
-   sentence-case sans against mono caps everywhere else. One voice. */
-label{
-  font-family:var(--mono);font-size:9px;font-weight:600;
-  letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:8px
-}
-input,textarea,select{
-  min-height:46px;border-radius:11px;font-size:15px;
-  background-image:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,0) 60%)
-}
-input:focus,textarea:focus,select:focus{
-  border-color:var(--muted);box-shadow:0 0 0 3px rgba(255,255,255,.05)
-}
-.escrow .eh{font-size:9px;letter-spacing:.14em;color:var(--dim)}
-.escrow .ln.tot b{
-  font-family:var(--display);font-variation-settings:'wdth' 112;
-  font-weight:900;font-variant-numeric:tabular-nums;font-size:19px;letter-spacing:-.03em
-}
-
-/* Section labels as rules with a caption, not as headings. */
-.sec-label{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--dim)}
-.strip{font-size:12px;letter-spacing:.01em}
-.strip b{font-size:14px}
-.seg button{font-family:var(--sans);font-variation-settings:'wdth' 96;letter-spacing:-.01em}
-
-@media(max-width:680px){
-  main{padding-left:14px!important;padding-right:14px!important}
-  .head-inner{padding:10px 14px}
-  .grid{grid-template-columns:1fr}
-}
-@media(max-width:430px){
-  .brand .nm{font-size:17px}
+.view.active,.lbrow,.sub-row,.p-stats .cell,.card{animation:none!important}
+@media(prefers-reduced-motion:reduce){
+  #bg .bgv{display:none}
+  .swipe-hint svg{animation:none}
 }
 </style>
 </head>
 <body>
+<!-- The ground. bountly-bg.mp4 has been in the repo since day one and only
+     landing.html ever used it — the app itself sat on flat hex. It is a
+     product about filming yourself, so the footage belongs underneath the
+     whole thing. Muted, looped, inert, and dropped for reduced-motion. -->
+<div id="bg">
+  <video class="bgv" autoplay muted loop playsinline webkit-playsinline preload="auto">
+    <source src="bountly-bg.mp4" type="video/mp4">
+  </video>
+  <div class="scrim"></div><div class="grain"></div>
+</div>
 <div id="splash">
   <div class="splash-mark">
-    <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h7a4 4 0 0 1 0 8H6zM6 12h8a4 4 0 0 1 0 8H6zM6 4v16" stroke="#0a0c08" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h7a4 4 0 0 1 0 8H6zM6 12h8a4 4 0 0 1 0 8H6zM6 4v16" stroke="#fff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg>
   </div>
   <div class="splash-name">Bountly</div>
   <div class="splash-bar"><div class="splash-fill"></div></div>
@@ -899,7 +918,7 @@ input:focus,textarea:focus,select:focus{
 <header>
   <div class="head-inner">
     <div class="brand">
-      <span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h7a4 4 0 0 1 0 8H6zM6 12h8a4 4 0 0 1 0 8H6zM6 4v16" stroke="#000" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span>
+      <span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h7a4 4 0 0 1 0 8H6zM6 12h8a4 4 0 0 1 0 8H6zM6 4v16" stroke="#fff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg></span>
       <span class="nm">Bountly</span>
     </div>
     <span id="follow-btn" style="display:none"></span>
@@ -930,18 +949,23 @@ input:focus,textarea:focus,select:focus{
 <main>
   <!-- ===== BOUNTIES ===== -->
   <section class="view active" data-view="bounties">
-    <!-- No hero: this is a Mini App, the person is already inside it. The
-         filter and the bounties themselves start at the top of the screen. -->
+    <!-- The bounties tab is the feed: fixed to the viewport, one dare per
+         screen, snapping. The filter, the counter and the swipe hint float
+         over it rather than pushing it down. -->
     <div class="market-head">
       <div class="filter-row">
         <div class="seg" id="ch-filter">
-          <button class="active" data-filter="open">Open now</button>
+          <button class="active" data-filter="open">Open</button>
           <button data-filter="closed">History</button>
         </div>
       </div>
     </div>
     <div class="strip" id="strip"></div>
     <div class="grid" id="grid"></div>
+    <div class="swipe-hint" id="swipe-hint">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 19V5M6 11l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Swipe
+    </div>
   </section>
 
   <!-- ===== CREATE ===== -->
@@ -1085,7 +1109,10 @@ let toastT; function toast(m){ let t=$('#toast'); if(!t){t=document.createElemen
 
 // ---- tabs ----
 const tabs=document.querySelectorAll('#nav button'),views=document.querySelectorAll('.view');
-function go(t){ document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t)); window.scrollTo({top:0,behavior:'smooth'}); haptic('light');
+function go(t){ document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t));
+  // The feed takes the whole viewport, so the page behind it must not scroll.
+  document.body.classList.toggle('immersive',t==='bounties');
+  window.scrollTo({top:0,behavior:'smooth'}); haptic('light');
   if(t==='bounties')loadChallenges(); if(t==='board')loadBoard(); if(t==='admin')loadQueue(); if(t==='profile')loadProfile(); }
 tabs.forEach(b=>b.onclick=()=>go(b.dataset.tab));
 // The hero's two buttons are gone with it — "browse" only scrolled to a grid
@@ -1099,52 +1126,87 @@ $('#ch-filter').querySelectorAll('button').forEach(b=>b.onclick=()=>{
   loadChallenges();
 });
 
+// ---- the feed ----
+// Which slide you are looking at, and the counter that says so. Snap points
+// are one viewport apart, so the index is just how far down you have scrolled.
+let feedTotal=0, feedMoney='';
+function feedScroll(){
+  const grid=$('#grid'); if(!grid||!feedTotal) return;
+  const i=Math.min(feedTotal,Math.round(grid.scrollTop/grid.clientHeight)+1);
+  const b=$('#strip').querySelector('b'); if(b) b.textContent=i;
+  // The hint has done its job the moment you scroll once.
+  if(grid.scrollTop>40) $('#swipe-hint').classList.add('gone');
+}
+
 // ---- challenges list ----
 async function loadChallenges(){
   const grid=$('#grid');
-  if(grid && !grid.dataset.loaded){ grid.innerHTML=Array.from({length:6}).map(()=>'<div class="skel skel-card"></div>').join(''); }
+  if(grid && !grid.dataset.loaded){ grid.innerHTML='<div class="slide"><div class="s-scrim"></div></div>'; }
   try{ const {challenges}=await api('/api/challenges');
     const sig=JSON.stringify(challenges)+'|'+(ME?ME.credits:'')+'|'+chFilter;
     if(grid.dataset.sig===sig) return;   // nothing changed → skip re-render (no flicker)
     grid.dataset.sig=sig;
     const open=challenges.filter(isOpen);
     const liveTotal=open.reduce((a,c)=>a+c.reward*c.maxWinners,0);
-    // One line instead of four boxed numbers: "open dares" and "total dares"
-    // were the same fact twice, and the balance already sits in the header.
+    // The strip is the feed counter now — a small pill in the corner saying
+    // where you are in the stack. It gets rewritten again on every scroll.
+    feedTotal = challenges.filter(c=> chFilter==='open' ? isOpen(c) : !isOpen(c)).length;
     $('#strip').innerHTML = open.length
-      ? `<b>${money(liveTotal)}</b> up for grabs<span class="sep">·</span><b>${open.length}</b> open ${open.length===1?'bounty':'bounties'}`
-      : `<b>${challenges.length}</b> ${challenges.length===1?'bounty':'bounties'} posted so far`;
+      ? `<span class="money">${money(liveTotal)}</span><span class="sep">·</span><b>1</b> / ${feedTotal||1}`
+      : `<b>${challenges.length}</b> posted`;
     // filter: open = still claimable, closed/history = filled or expired
     const shown=challenges.filter(c=> chFilter==='open' ? isOpen(c) : !isOpen(c));
     if(!shown.length){
       $('#grid').innerHTML=`<div class="empty-state"><strong>${chFilter==='open'?'No open bounties right now.':'No completed bounties yet.'}</strong><span>${chFilter==='open'?'Post a challenge or check back soon.':'Finished and expired bounties will appear here.'}</span></div>`;
       grid.dataset.loaded="1"; return;
     }
-    // Title first, then who and when, then the money. The reward is the only
-    // thing painted in the accent — everything else on the card is neutral.
+    // One dare per screen. The reward is ghosted across the back at the size
+    // of a building, the title is shouted in Anton over the footage, and every
+    // action sits in the rail under your right thumb.
     $('#grid').innerHTML=shown.map(b=>{
       const ms=b.expiresAt?b.expiresAt-Date.now():0;
-      const when=b.full?'no slots left'
-        :!b.expiresAt?''
-        :ms<=0?'<span class="soon">expired</span>'
-        :ms<24*3600e3?`<span class="soon">${leftText(ms)}</span>`:leftText(ms);
-      const badge=b.full?'<span class="tag full">filled</span>'
-        :(b.subs>3?'<span class="tag hot">hot</span>':'');
-      const pips=Array.from({length:b.maxWinners},(_,i)=>`<span class="pip ${i<b.slots[0]?'on':''}"></span>`).join('');
-      return `<div class="card" data-open="${b.id}" role="button" tabindex="0">
-        <div class="c-head"><h3>${esc(b.title)}</h3>${badge}</div>
-        <div class="c-meta"><span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span>${when?`<span class="sep">·</span>${when}`:''}<span class="sep">·</span><span class="code">${b.code}</span></div>
-        <div class="c-foot">
-          <div class="c-pay"><b>${money(b.reward)}</b><span>per winner</span></div>
-          <div class="c-slot"><span class="pips">${pips}</span><span>${b.slots[0]}/${b.maxWinners} slots</span></div>
+      const soon=!b.full&&b.expiresAt&&ms>0&&ms<24*3600e3;
+      const when=!b.expiresAt?''
+        :ms<=0?'<span class="tag clock soon">expired</span>'
+        :`<span class="tag clock${soon?' soon':''}">${leftText(ms)}</span>`;
+      const chips=[
+        b.full?'<span class="tag full">filled</span>'
+          :'<span class="tag live"><span class="dot"></span>live</span>',
+        b.subs>3?'<span class="tag hot">hot</span>':'',
+        when
+      ].filter(Boolean).join('');
+      const track=Array.from({length:b.maxWinners},(_,i)=>`<div class="g ${i<b.slots[0]?'on':''}"></div>`).join('');
+      return `<div class="slide${b.full?' spent':''}" data-open="${b.id}" role="button" tabindex="0">
+        <div class="s-scrim"></div>
+        <div class="wm" aria-hidden="true">${money(b.reward)}</div>
+        <div class="s-body">
+          <div class="s-left">
+            <div class="meta1"><span class="plink" data-player="${esc(b.creator)}">@${esc(b.creator)}</span><span>·</span><span>${b.code}</span></div>
+            <h3>${esc(b.title)}</h3>
+            <div class="chips">${chips}</div>
+            <div class="slotline">
+              <div class="track">${track}</div>
+              <span class="sl">${b.slots[0]}/${b.maxWinners} slots</span>
+            </div>
+          </div>
+          <div class="s-rail">
+            <div class="avatar" data-player="${esc(b.creator)}">${esc((b.creator||'?')[0]).toUpperCase()}</div>
+            <div class="r-reward"><span class="n">${money(b.reward)}</span><span class="u">per winner</span></div>
+            <button class="rbtn take" data-open="${b.id}" aria-label="Take this dare"${b.full?' disabled':''}>
+              <span class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h13M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              ${b.full?'Filled':'Take'}
+            </button>
+          </div>
         </div>
       </div>`;
     }).join('');
-    $('#grid').querySelectorAll('[data-open]').forEach(c=>{
+    $('#grid').querySelectorAll('.slide').forEach(c=>{
       c.onclick=(e)=>{ if(e.target.closest('[data-player]')) return; haptic('light'); openDetail(c.dataset.open); };
       // role="button" has to answer the keyboard the way a real button does.
       c.onkeydown=(e)=>{ if(e.key!=='Enter'&&e.key!==' ')return; e.preventDefault(); haptic('light'); openDetail(c.dataset.open); };
     });
+    grid.onscroll=feedScroll;
+    feedScroll();
     grid.dataset.loaded="1";
     countUp();
   }catch(e){ $('#grid').innerHTML=`<div style="color:var(--muted)">Couldn't load: ${esc(e.message)}</div>`; }
@@ -1527,6 +1589,8 @@ async function loadLedger(){
     }).join('')+`</div>`:'<div style="color:var(--muted)">No transactions yet.</div>';
   }catch(e){ $('#admin-ledger').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
+// Bounties is the tab you land on, and it is the immersive one.
+document.body.classList.add('immersive');
 refreshMe().then(loadChallenges).finally(()=>{
   setTimeout(()=>{ const s=$('#splash'); if(s) s.classList.add('hide'); }, 1100);
 });
