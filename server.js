@@ -299,9 +299,16 @@ const SECURITY_HEADERS = {
 const TELEGRAM_FRAME = "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org";
 // The pages lean on inline <script>/<style> and pull the QR lib from cdnjs,
 // so 'unsafe-inline' has to stay for now; everything else is locked down.
+//
+// telegram.org is not optional. The mini app loads telegram-web-app.js from
+// there, and without it window.Telegram is undefined, so initData is empty,
+// so the x-telegram-init header is empty, so verifyTelegram() rejects every
+// single request. With BOT_TOKEN set — that is, in production — the app was
+// not merely missing haptics: it could not authenticate at all. It only ever
+// appeared to work in DEV_AUTH, where the header is ignored.
 const CSP_APP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+  "script-src 'self' 'unsafe-inline' https://telegram.org https://cdnjs.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
@@ -917,6 +924,25 @@ const server = http.createServer(async (req, res) => {
       }
       return send(200, { "Content-Length": st.size });
     });
+  }
+
+  // ---- self-hosted webfonts ----
+  // The mini app is served with default-src 'self' and a style-src that lists
+  // no external host, so a <link> to fonts.googleapis.com was blocked and every
+  // heading fell back to system-ui. The fonts live here now, same origin, no
+  // CSP hole. Pattern-matched rather than listed one by one, but still tight:
+  // basename only, and nothing but the woff2 files we shipped.
+  if (p.startsWith("/fonts/")){
+    const name = path.basename(p.slice("/fonts/".length));
+    const f = path.join(__dirname, "fonts", name);
+    if (!/^[\w-]+\.woff2$/.test(name) || !fs.existsSync(f)){
+      res.writeHead(404, SECURITY_HEADERS); return res.end("not found");
+    }
+    res.writeHead(200, { "Content-Type": "font/woff2",
+      // Hashed by content in the filename? No — so a year is too long. A week
+      // is plenty for a file that only changes when the design does.
+      "Cache-Control": "public, max-age=604800", ...SECURITY_HEADERS });
+    return res.end(fs.readFileSync(f));
   }
 
   // ---- static (mini app + dashboard) — STRICT WHITELIST ----

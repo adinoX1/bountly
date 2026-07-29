@@ -117,6 +117,30 @@ try {
   ok(/frame-ancestors 'none'/.test(adm.headers['content-security-policy'] || ''),
     'dashboard refuses all framing');
   eq(app.headers['x-content-type-options'], 'nosniff', 'nosniff still set');
+  // Both of these were silently broken by the CSP. The fonts made the app
+  // look wrong; the Telegram SDK made it not work at all, because without it
+  // initData is empty and every request fails auth once BOT_TOKEN is set.
+  ok(/script-src[^;]*https:\/\/telegram\.org/.test(app.headers['content-security-policy'] || ''),
+    'the Telegram SDK is allowed to load — without it nothing authenticates');
+  const csp = app.headers['content-security-policy'] || '';
+  ok(!/fonts\.googleapis\.com/.test(csp), 'no external font host is needed — they are self-hosted');
+
+  console.log('\n-- self-hosted fonts are actually reachable --');
+  for (const f of ['anton-latin', 'anton-latin-ext', 'archivo-latin', 'archivo-latin-ext',
+                   'jetbrains-latin', 'jetbrains-latin-ext']) {
+    const r = await raw(`/fonts/${f}.woff2`);
+    eq(r.status, 200, `${f}.woff2 is served`);
+  }
+  eq((await raw('/fonts/anton-latin.woff2')).headers['content-type'], 'font/woff2', 'served as a font');
+  // The whole point of the /fonts/ prefix is that it stays as tight as the
+  // whitelist it sits next to.
+  eq((await raw('/fonts/server.js')).status, 404, 'only woff2 comes out of /fonts/');
+  eq((await raw('/fonts/..%2Fdata.json')).status, 404, 'no traversal out of /fonts/');
+  // index.html is served at /app, /app/ and /index.html, so a relative asset
+  // path resolves three different ways. These have to be root-absolute.
+  const html = (await raw('/app')).body.toString('utf8');
+  ok(!/src="fonts\/|url\(fonts\//.test(html), 'font URLs are root-absolute');
+  ok(/src="\/bountly-bg\.mp4"/.test(html), 'the background video URL is root-absolute too');
   ok(!app.headers['strict-transport-security'], 'no HSTS on a plain-HTTP request');
   const https = await raw('/app', { 'X-Forwarded-Proto': 'https' });
   ok(/max-age=/.test(https.headers['strict-transport-security'] || ''), 'HSTS set when proxied over https');

@@ -6,13 +6,42 @@
 <meta name="theme-color" content="#0a0a0b">
 <meta name="description" content="Bountly is a Telegram mini app where real challenges meet real rewards. Do the dare, submit proof, get paid.">
 <title>Bountly</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Anton carries every dare title and every reward: one weight, very heavy,
-     very condensed, drawn to be shouted at poster size. Archivo does the
-     ordinary work around it, and JetBrains Mono every code and figure. -->
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="preload" href="/fonts/anton-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+/* Anton carries every dare title and every reward: one weight, very heavy,
+   very condensed, drawn to be shouted at poster size. Archivo does the
+   ordinary work around it, and JetBrains Mono every code and figure.
+   ------------------------------------------------------------------------
+   SELF-HOSTED ON PURPOSE. These used to come from fonts.googleapis.com and
+   never arrived: this app is served with default-src 'self' and a style-src
+   that lists no external host, so the stylesheet was blocked outright and
+   every heading quietly fell back to system-ui. It looked fine in a local
+   harness with no CSP and wrong everywhere that mattered.
+   Serving them from our own origin needs no CSP hole at all — and it drops
+   two DNS lookups and two TLS handshakes off the first paint, which a Mini
+   App opened from a chat feels more than a website would.
+   Archivo and JetBrains Mono are variable, hence the weight ranges: one
+   file covers every weight the design asks for.
+   latin-ext is not optional — Slovak titles are full of á í ý č š ž ľ ô. */
+@font-face{font-family:'Anton';font-style:normal;font-weight:400;font-display:swap;
+  src:url(/fonts/anton-latin-ext.woff2) format('woff2');
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Anton';font-style:normal;font-weight:400;font-display:swap;
+  src:url(/fonts/anton-latin.woff2) format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:400 900;font-display:swap;
+  src:url(/fonts/archivo-latin-ext.woff2) format('woff2');
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:400 900;font-display:swap;
+  src:url(/fonts/archivo-latin.woff2) format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:500 700;font-display:swap;
+  src:url(/fonts/jetbrains-latin-ext.woff2) format('woff2');
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:500 700;font-display:swap;
+  src:url(/fonts/jetbrains-latin.woff2) format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 /* Base tokens. The design layer near the bottom of this stylesheet restates
    them — keep the two in step, and never let --lime and --red collide again:
    they used to be the same hex, which made a win and a rejection identical. */
@@ -959,7 +988,7 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
      whole thing. Muted, looped, inert, and dropped for reduced-motion. -->
 <div id="bg">
   <video class="bgv" autoplay muted loop playsinline webkit-playsinline preload="auto">
-    <source src="bountly-bg.mp4" type="video/mp4">
+    <source src="/bountly-bg.mp4" type="video/mp4">
   </video>
   <div class="scrim"></div><div class="grain"></div>
 </div>
