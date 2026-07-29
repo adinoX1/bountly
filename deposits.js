@@ -199,9 +199,23 @@ export async function expireStale(db, { now = Date.now() } = {}) {
 // amountUsdt}) }. Both are injected, so this loop — the part that
 // decides when money moves — is tested against fakes, offline.
 // ============================================================
-export async function confirmOpen(db, readers, { log = console, now = Date.now(), limit = 60 } = {}) {
+// `onCredited` and `onFailed` are told after the write lands, so a deposit can
+// reach the person who sent it. Without them the app is silent about the one
+// thing a depositor is actively waiting for: you send USDT to an address and
+// nothing ever says it arrived, so you sit refreshing a screen.
+//
+// Both are fired inside a try/catch and awaited nowhere. A hook is a courtesy;
+// the money path is not. A notification that throws — Telegram down, user
+// blocked the bot — must never abort the pass or re-credit on the next one.
+export async function confirmOpen(db, readers, { log = console, now = Date.now(), limit = 60,
+                                                 onCredited = null, onFailed = null } = {}) {
   const rows = await openRows(db, { limit });
   const out = { checked: rows.length, credited: 0, confirming: 0, failed: 0 };
+  const fire = (hook, row, extra) => {
+    if (!hook) return;
+    try { Promise.resolve(hook({ ...row, ...extra })).catch(e => log.error?.('deposit hook', e.message)); }
+    catch (e) { log.error?.('deposit hook', e.message); }
+  };
 
   for (const row of rows) {
     const reader = readers && readers[row.chain];
@@ -212,15 +226,22 @@ export async function confirmOpen(db, readers, { log = console, now = Date.now()
     catch (e) { log.error?.('confirm read', row.chain, row.txref, e.message); continue; }
 
     switch (verdict({ ...st, need: row.need })) {
-      case 'failed':
-        await markFailed(db, row.chain, row.txref, st.detail || 'rejected on-chain');
+      case 'failed': {
+        const reason = st.detail || 'rejected on-chain';
+        await markFailed(db, row.chain, row.txref, reason);
         out.failed++;
+        fire(onFailed, row, { reason });
         break;
+      }
 
       case 'unseen':
         // Not on-chain yet. Indexers lag, so give it the stale window
         // before calling it dead.
-        if (isStale(row.firstSeen, now)) { await markFailed(db, row.chain, row.txref, 'never confirmed'); out.failed++; }
+        if (isStale(row.firstSeen, now)) {
+          await markFailed(db, row.chain, row.txref, 'never confirmed');
+          out.failed++;
+          fire(onFailed, row, { reason: 'never confirmed' });
+        }
         else out.confirming++;
         break;
 
@@ -239,12 +260,17 @@ export async function confirmOpen(db, readers, { log = console, now = Date.now()
             // below minimum, amount vanished). Close it with the reason.
             await markFailed(db, row.chain, row.txref, res.reason);
             out.failed++;
+            fire(onFailed, row, { reason: res.reason });
             break;
           }
           await markCredited(db, row.chain, row.txref, st.confirms);
           if (res && res.credited) {
             out.credited++;
             log.log?.(`deposit confirmed: ${row.amountUsdt} -> @${row.username} (${row.chain} ${String(row.txref).slice(0, 12)})`);
+            // Only on a real credit. A second pass over an already-credited
+            // row reports credited:false, and telling somebody twice that the
+            // same money arrived is worse than not telling them at all.
+            fire(onCredited, row, { confirms: st.confirms });
           }
         } catch (e) { log.error?.('credit', row.txref, e.message); }
         break;
@@ -254,8 +280,9 @@ export async function confirmOpen(db, readers, { log = console, now = Date.now()
 }
 
 // Run the pass on an interval. Returns the timer so callers can stop it.
-export function startConfirmWatcher(db, readers, { everyMs = 15000, log = console } = {}) {
-  const tick = () => confirmOpen(db, readers, { log })
+export function startConfirmWatcher(db, readers, { everyMs = 15000, log = console,
+                                                   onCredited = null, onFailed = null } = {}) {
+  const tick = () => confirmOpen(db, readers, { log, onCredited, onFailed })
     .then(() => expireStale(db))
     .catch(e => log.error?.('confirm pass', e.message));
   tick();

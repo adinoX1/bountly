@@ -143,7 +143,7 @@ export function reader(pool, log = console) {
 // left to the confirmation pass, so a transfer that is visible but not yet
 // deep enough shows up to the player as "confirming" instead of silently
 // becoming money.
-export async function pollDeposits(pool, log = console) {
+export async function pollDeposits(pool, log = console, hooks = {}) {
   const c = cfg();
   if (!c.configured) return { ok: false, reason: 'TON not configured' };
   const url = `/jetton/transfers?address=${encodeURIComponent(c.deposit)}`
@@ -167,16 +167,18 @@ export async function pollDeposits(pool, log = console) {
       if (r.watched) watched++;
     } catch (e) { log.error?.('watch error', e.message); }
   }
-  const settled = await D.confirmOpen(pool, { ton: reader(pool, log) }, { log });
+  const settled = await D.confirmOpen(pool, { ton: reader(pool, log) }, { log, ...hooks });
   return { ok: true, scanned: transfers.length, watched, credited: settled.credited, confirming: settled.confirming };
 }
 
-// Run the poller on an interval (call once at startup).
-export function startDepositWatcher(pool, everyMs = 30000, log = console) {
+// Run the poller on an interval (call once at startup). `hooks` carries
+// onCredited / onFailed straight through to the confirm pass, which is where
+// a deposit stops being a sighting and becomes money somebody should hear about.
+export function startDepositWatcher(pool, everyMs = 30000, log = console, hooks = {}) {
   const c = cfg();
   if (!c.configured) { log.warn?.('TON deposit watcher off (set DEPOSIT_ADDRESS + USDT_JETTON_MASTER)'); return null; }
   log.log?.(`TON deposit watcher on (${c.network}, every ${everyMs / 1000}s, ${c.minConfirms} confirmation${c.minConfirms > 1 ? 's' : ''})`);
-  const tick = () => pollDeposits(pool, log).catch(e => log.error?.('poll', e.message));
+  const tick = () => pollDeposits(pool, log, hooks).catch(e => log.error?.('poll', e.message));
   tick();
   const t = setInterval(tick, everyMs);
   t.unref?.();

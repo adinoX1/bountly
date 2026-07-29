@@ -21,7 +21,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ledgerApi } from "./server_ledger.js";
-import { initLedger, withClient, startExpiryWatcher } from "./wallet.js";
+import { initLedger, withClient, startExpiryWatcher, balance as ledgerBalance } from "./wallet.js";
 import { migrateAppState } from "./migrate_to_ledger.mjs";
 import { startDepositWatcher } from "./ton.js";
 import * as solana from "./solana.js";
@@ -138,6 +138,16 @@ async function notify(userId, text){
     });
     if (!r.ok){ const t = await r.text(); console.error("notify failed", r.status, t.slice(0, 140)); }
   } catch (e){ console.error("notify error:", e.message); }
+}
+
+// Same thing, keyed by @username. The ledger and the deposit watchers know
+// people by name; notify() needs a Telegram chat id, and the JSON user map is
+// the only place holding both. Silent when the name is unknown — a missing
+// notification is not worth an exception on a background timer.
+function notifyByName(username, text){
+  if (!username) return;
+  const u = Object.values(db.users).find(x => x.username === username);
+  if (u) notify(u.id, text);
 }
 
 // ---- Telegram bot commands (webhook-driven) ----
@@ -974,17 +984,44 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
+// ---- what a depositor hears back ----------------------------------------
+// A deposit is the one thing a user actively waits on: they send USDT to an
+// address, then sit refreshing a screen with no idea whether it worked. The
+// watchers have always known the moment it landed and told nobody. Running
+// inside a messenger and staying silent about money arriving is the single
+// biggest thing the notification path was leaving on the table.
+//
+// Both hooks are already wrapped by confirmOpen, so a throw here cannot
+// disturb the confirm pass or cause a re-credit.
+const depositHooks = {
+  onCredited: async row => {
+    const asset = row.chain === "sol" ? "USDC" : "USDT";
+    const net   = row.chain === "sol" ? "Solana" : "TON";
+    // The balance is the number they actually want. If reading it fails the
+    // amount above still carries the news, so it is strictly an addition.
+    let tail = "";
+    try { tail = `\nYour balance is now ${money(await ledgerBalance(pool, row.username))}.`; }
+    catch { /* the arrival is the message; the balance was a bonus */ }
+    notifyByName(row.username, `✅ ${money(row.amountUsdt)} ${asset} landed on ${net}.${tail}`);
+  },
+  onFailed: row => {
+    const asset = row.chain === "sol" ? "USDC" : "USDT";
+    notifyByName(row.username,
+      `⚠️ That ${asset} transfer did not go through.\nReason: ${row.reason}\nNothing was credited and nothing was taken from you — you can send it again.`);
+  },
+};
+
 initStore()
   .then(() => server.listen(PORT, () => console.log(
     `Bountly running on http://localhost:${PORT} · storage: ${USE_DB ? "Postgres" : "local JSON"} · uploads: ${UP_DIR} · BOT_TOKEN ${BOT_TOKEN ? "set" : "NOT set (DEV mode)"}`)))
-  .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool); })
+  .then(() => { if (LEDGER && USE_DB) startDepositWatcher(pool, 30000, console, depositHooks); })
   .then(() => { if (!(LEDGER && USE_DB)){ const t = setInterval(expireChallenges, 5 * 60e3); t.unref?.(); expireChallenges(); } })
   .then(() => { if (LEDGER && USE_DB) startExpiryWatcher(pool, { onExpired: e => {
     const creator = Object.values(db.users).find(x => x.username === e.creator);
     if (creator) notify(creator.id, `⏳ Your dare ${e.code} expired — nobody claimed it.\n${money(e.refundedUsdt)} has been refunded to your balance.`);
   } }); })
   .then(() => { if (SOLANA && USE_DB) return solana.ensureSchema(pool)
-    .then(() => { console.log("✓ Solana deposits enabled (SOLANA=1)"); solana.startAddressWatcher(pool); })
+    .then(() => { console.log("✓ Solana deposits enabled (SOLANA=1)"); solana.startAddressWatcher(pool, 60000, console, depositHooks); })
     .catch(e => console.error("Solana schema:", e.message)); })
   .then(() => registerTelegram())
   .catch(e => { console.error("Startup failed:", e.message); process.exit(1); });

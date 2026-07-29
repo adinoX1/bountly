@@ -138,6 +138,71 @@ const n = await D.expireStale(pool, { now: Date.now() + D.STALE_MS + 1000 });
 ok(n >= 2, 'the open frank rows are swept');
 eq((await D.pendingFor(pool, 'frank')).filter(x => x.status === 'seen').length, 0, 'nothing of frank\'s is still spinning');
 
+// ============================================================
+// The pass now tells somebody. A deposit is the one thing a user actively
+// waits on, and the watchers used to know it had landed and say nothing.
+console.log('\n-- the pass reports what it settled --');
+const told = { credited: [], failed: [] };
+const hooks = {
+  onCredited: row => told.credited.push(row),
+  onFailed:   row => told.failed.push(row),
+};
+
+await D.noteSeen(pool, { chain: 'ton', txref: 'txhook', username: 'gina', amountUsdt: 30, confirms: 0, need: 2 });
+chain.txhook = { seen: true, failed: false, confirms: 1 };
+await D.confirmOpen(pool, readers, hooks);
+eq(told.credited.length, 0, 'a confirming deposit is not announced early');
+
+chain.txhook.confirms = 2;
+await D.confirmOpen(pool, readers, hooks);
+eq(told.credited.length, 1, 'crossing the bar announces exactly once');
+eq(told.credited[0].username, 'gina', 'the hook knows who to tell');
+eq(told.credited[0].amountUsdt, 30, 'and how much landed');
+eq(told.credited[0].chain, 'ton', 'and on which chain');
+// Telling somebody twice that the same money arrived is worse than silence.
+await D.confirmOpen(pool, readers, hooks);
+eq(told.credited.length, 1, 'a settled row is never announced a second time');
+
+await D.noteSeen(pool, { chain: 'ton', txref: 'txhookbad', username: 'hana', amountUsdt: 8, confirms: 0, need: 1 });
+chain.txhookbad = { seen: true, failed: true, confirms: 0, detail: 'insufficient fee' };
+await D.confirmOpen(pool, readers, hooks);
+eq(told.failed.length, 1, 'a failure is reported too');
+eq(told.failed[0].username, 'hana', 'to the person who sent it');
+ok(/insufficient fee/.test(told.failed[0].reason), 'carrying the chain\'s own reason');
+
+// A sighting that never confirms is a different failure path, and reaches the
+// same hook — otherwise the most confusing outcome is the silent one.
+await D.noteSeen(pool, { chain: 'ton', txref: 'txhookghost', username: 'iva', amountUsdt: 4, confirms: 0, need: 1 });
+await D.confirmOpen(pool, readers, { ...hooks, now: Date.now() + D.STALE_MS + 1000 });
+ok(told.failed.some(x => x.username === 'iva' && /never confirmed/.test(x.reason)),
+  'a transfer that never lands is reported as never confirmed');
+
+console.log('\n-- a broken notifier cannot break the money --');
+let hookCalls = 0;
+const exploding = {
+  onCredited: () => { hookCalls++; throw new Error('telegram is down'); },
+  onFailed:   () => { throw new Error('telegram is down'); },
+};
+await D.noteSeen(pool, { chain: 'ton', txref: 'txboom', username: 'jana', amountUsdt: 17, confirms: 0, need: 1 });
+chain.txboom = { seen: true, failed: false, confirms: 1 };
+const boom = await D.confirmOpen(pool, readers, { ...exploding, log: { error(){}, log(){}, warn(){} } });
+eq(boom.credited, 1, 'the credit still went through');
+eq(hookCalls, 1, 'the hook did run, and did throw');
+eq(await wallet.balance(pool, 'jana'), 17, 'jana has her money regardless');
+// and the row is closed, so a retry cannot pay her twice
+const again = await D.confirmOpen(pool, readers, { log: { error(){}, log(){}, warn(){} } });
+eq(again.checked, 0, 'the row was still closed out despite the throw');
+eq(await wallet.balance(pool, 'jana'), 17, 'and she is not paid twice');
+
+// A rejected promise is the likelier shape, since notify() is async.
+let rejected = 0;
+await D.noteSeen(pool, { chain: 'ton', txref: 'txreject', username: 'kata', amountUsdt: 6, confirms: 0, need: 1 });
+chain.txreject = { seen: true, failed: false, confirms: 1 };
+await D.confirmOpen(pool, readers, { onCredited: async () => { rejected++; throw new Error('429 too many requests'); },
+                                     log: { error(){}, log(){}, warn(){} } });
+eq(rejected, 1, 'an async hook that rejects is caught too');
+eq(await wallet.balance(pool, 'kata'), 6, 'and the deposit still landed');
+
 console.log('\n-- the ledger survived all of it --');
 eq(await wallet.conservation(pool), 0, 'conservation 0');
 ok((await wallet.reconcile(pool)).length === 0, 'reconcile clean');

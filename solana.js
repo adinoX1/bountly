@@ -285,7 +285,7 @@ export async function registerAddressWithHelius(address) {
 // The webhook usually fires before the slot is finalized, so crediting is
 // left to the confirmation pass — which re-reads the chain itself.
 // Returns {ok, seen, credited} or {ok:false, status}.
-export async function handleWebhook(pool, { headers, body, log = console }) {
+export async function handleWebhook(pool, { headers, body, log = console, hooks = {} }) {
   const c = cfg();
   if (!webhookAuthorized(headers, c.webhookSecret)) return { ok: false, status: 401 };
   const events = Array.isArray(body) ? body : (body ? [body] : []);
@@ -314,7 +314,7 @@ export async function handleWebhook(pool, { headers, body, log = console }) {
       } catch (e) { log.error?.('solana watch error', e.message); }
     }
   }
-  const settled = await D.confirmOpen(pool, { sol: reader(pool, log) }, { log });
+  const settled = await D.confirmOpen(pool, { sol: reader(pool, log) }, { log, ...hooks });
   return { ok: true, seen, credited: settled.credited };
 }
 
@@ -323,7 +323,7 @@ export async function handleWebhook(pool, { headers, body, log = console }) {
 // webhook configured, and what backstops a webhook that was missed.
 // Pass `usernames` to scan just those accounts — that is the on-demand
 // scan the deposit sheet triggers while a player is watching it.
-export async function pollAddresses(pool, { usernames = null, limit = 10, max = 200, log = console } = {}) {
+export async function pollAddresses(pool, { usernames = null, limit = 10, max = 200, log = console, hooks = {} } = {}) {
   const c = cfg();
   if (!c.configured) return { ok: false, reason: 'Solana not configured' };
   await ensureSchema(pool);
@@ -358,16 +358,16 @@ export async function pollAddresses(pool, { usernames = null, limit = 10, max = 
       } catch (e) { log.error?.('solana preview', e.message); }
     }
   }
-  const settled = await D.confirmOpen(pool, { sol: reader(pool, log) }, { log });
+  const settled = await D.confirmOpen(pool, { sol: reader(pool, log) }, { log, ...hooks });
   return { ok: true, addresses: rows.length, seen, credited: settled.credited, confirming: settled.confirming };
 }
 
 // Background sweep of every registered address (call once at startup).
-export function startAddressWatcher(pool, everyMs = 60000, log = console) {
+export function startAddressWatcher(pool, everyMs = 60000, log = console, hooks = {}) {
   const c = cfg();
   if (!c.configured) return null;
   log.log?.(`Solana address watcher on (${c.network}, every ${everyMs / 1000}s)`);
-  const tick = () => pollAddresses(pool, { log }).catch(e => log.error?.('solana poll', e.message));
+  const tick = () => pollAddresses(pool, { log, hooks }).catch(e => log.error?.('solana poll', e.message));
   tick();
   const t = setInterval(tick, everyMs);
   t.unref?.();
