@@ -1195,17 +1195,16 @@ body.web .cm-form,body.web .cm-hint{display:none}
 
 <!-- bottom tab bar (mobile-native) -->
 <nav class="tabbar" id="nav">
+  <!-- The tab key stays "bounties" — it is what go() and every deep link
+       already speak. Only the label is Home, because that is what a feed you
+       land on is called. -->
   <button class="active" data-tab="bounties">
-    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/></svg>
-    <span>Bounties</span>
+    <svg viewBox="0 0 24 24" fill="none"><path d="M3.6 10.4 12 4l8.4 6.4V19a1.4 1.4 0 0 1-1.4 1.4h-3.6v-5.2h-6.8v5.2H5A1.4 1.4 0 0 1 3.6 19z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>
+    <span>Home</span>
   </button>
   <button data-tab="create">
     <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
     <span>Create</span>
-  </button>
-  <button data-tab="how">
-    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 11v5M12 8h.01" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-    <span>Info</span>
   </button>
   <button data-tab="profile">
     <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -1294,19 +1293,6 @@ body.web .cm-form,body.web .cm-hint{display:none}
   </section>
 
   <!-- ===== HOW ===== -->
-  <section class="view" data-view="how">
-    <div class="how-intro">
-      <div><div class="section-kicker">Three parties. One clear outcome.</div><h2>A fair shot at every bounty.</h2></div>
-      <p>Creators fund the reward first. Hunters submit time-stamped video proof. Reviewers check the same written rules for everyone.</p>
-    </div>
-    <div class="steps">
-      <div class="step"><div class="num">1</div><h4>Post a dare</h4><p>Set the challenge, the reward and how many can win. Your bounty locks in escrow.</p></div>
-      <div class="step"><div class="num">2</div><h4>Take the dare</h4><p>Claim a slot, do it for real on camera in one take, say the code.</p></div>
-      <div class="step"><div class="num">3</div><h4>Upload proof</h4><p>Your clip is time-stamped. Order is by upload time. Every clip gets reviewed.</p></div>
-      <div class="step"><div class="num">4</div><h4>First valid wins</h4><p>The fastest approved proof takes the slot and gets paid from escrow.</p></div>
-    </div>
-  </section>
-
   <!-- ===== PROFILE ===== -->
   <section class="view" data-view="profile">
     <div class="page-h"><h2>Profile</h2><p>Your balance, dares and proof history.</p></div>
@@ -1432,8 +1418,9 @@ let toastT; function toast(m){ let t=$('#toast'); if(!t){t=document.createElemen
 // ---- tabs ----
 const tabs=document.querySelectorAll('#nav button'),views=document.querySelectorAll('.view');
 function go(t){
-  // Create, profile and admin are nothing but account state. They are not in
-  // the nav on the web, but a stray call or an old deep link still lands here.
+  // Create, profile and admin are nothing but account state, which the web has
+  // none of. Create and Profile are still in the nav there on purpose, so this
+  // is the ordinary path for them and not just a catch for stray deep links.
   if(WEB && (t==='create'||t==='profile'||t==='admin')){ toTelegram(); return; }
   document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t));
   // The feed takes the whole viewport, so the page behind it must not scroll.
@@ -1456,8 +1443,15 @@ $('#ch-filter').querySelectorAll('button').forEach(b=>b.onclick=()=>{
 // Which slide you are looking at, and the counter that says so. Snap points
 // are one viewport apart, so the index is just how far down you have scrolled.
 let feedTotal=0, feedAt=0, APP_LINK='', CH_BY_ID={};
+// Above this width the feed stops being a snap feed and becomes a wall of
+// cards, which changes what "the slide you are on" means — there isn't one.
+const isDesktop=()=>window.matchMedia('(min-width:900px)').matches;
 function feedScroll(){
   const grid=$('#grid'); if(!grid||!feedTotal) return;
+  // On the desktop grid the page scrolls, not #grid, so scrollTop is pinned at
+  // 0 and the index below would always say "slide 1". Cards are stills there
+  // and the clip plays in the detail, so there is nothing to drive.
+  if(isDesktop()) return;
   const i=Math.min(feedTotal,Math.round(grid.scrollTop/grid.clientHeight)+1);
   if(i!==feedAt){
     feedAt=i;
@@ -1645,10 +1639,30 @@ async function loadChallenges(){
     });
     grid.onscroll=feedScroll;
     feedAt=0; feedScroll();
+    primeStills();
     grid.dataset.loaded="1";
     countUp();
   }catch(e){ $('#grid').innerHTML=`<div style="color:var(--muted)">Couldn't load: ${esc(e.message)}</div>`; }
 }
+// A won dare carries the winning clip, and on the phone feedScroll() plays it
+// as you swipe onto it. The desktop grid never plays anything — the clip is the
+// detail's job — so nothing ever asked those <video preload="none"> elements to
+// fetch a single byte and a won dare rendered as a black rectangle.
+//
+// #t=0.1 is the fix: a media fragment makes the browser seek just past the
+// start and paint that frame. Metadata only, so it costs a range request rather
+// than the whole file.
+function primeStills(){
+  if(!isDesktop()) return;
+  document.querySelectorAll('#grid .s-vid').forEach(v=>{
+    if(v.dataset.primed) return;
+    v.dataset.primed='1';
+    v.preload='metadata';
+    if(!/#t=/.test(v.getAttribute('src')||'')) v.src=v.src+'#t=0.1';
+    v.load();
+  });
+}
+
 // animate numbers in the stat strip
 function countUp(){
   document.querySelectorAll('#strip .v').forEach(el=>{
@@ -2226,12 +2240,14 @@ async function loadLedger(){
     }).join('')+`</div>`:'<div style="color:var(--muted)">No transactions yet.</div>';
   }catch(e){ $('#admin-ledger').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
-// The web build drops the two tabs that are nothing but account state, and
-// puts the way back into Telegram where the balance chip would have gone.
+// Create and Profile stay in the nav on the web even though neither can work
+// without a session. Hiding them made the site look like all Bountly does is
+// let you watch: somebody who lands here should be able to see that dares get
+// posted and accounts get paid. Tapping one hands you to Telegram, which is
+// where those two live — go() does that, so there is nothing to do here but
+// put the way back into Telegram where the balance chip would have gone.
 function initWeb(){
   document.body.classList.add('web');
-  document.querySelectorAll('#nav button[data-tab="create"],#nav button[data-tab="profile"]')
-    .forEach(b=>b.remove());
   const slot=$('#follow-btn');
   if(slot){
     slot.style.display='';

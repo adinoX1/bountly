@@ -259,5 +259,50 @@ for (const sel of ['data-player', 'data-share', 'data-react', 'data-comments']) 
     `${sel} gets out of the slide's own click handler`);
 }
 
+console.log('\n-- the nav is Home, Create, Profile --');
+{
+  const nav = html.slice(html.indexOf('<nav class="tabbar" id="nav">'), html.indexOf('</nav>'));
+  const labels = [...nav.matchAll(/<span>([^<]+)<\/span>/g)].map(m => m[1]);
+  eq(labels.join(','), 'Home,Create,Profile', 'three tabs, in that order');
+  // The label says Home but the key is still "bounties" — go('bounties') is
+  // called from the post-a-dare success path and would quietly stop working.
+  ok(/data-tab="bounties"/.test(nav), 'the Home tab still carries the bounties key');
+  ok(!/data-tab="how"/.test(html), 'the Info tab is gone from the app');
+  ok(!/data-view="how"/.test(html), 'and its view went with it, rather than lingering unreachable');
+}
+
+console.log('\n-- the explainer lives on the landing page now --');
+{
+  const land = fs.readFileSync(path.join(__dirname, 'landing.html'), 'utf8');
+  ok(/id="how"/.test(land), 'the landing has a how-it-works section');
+  ok(/href="#how"/.test(land), 'and the first screen points down at it');
+  for (const step of ['Post a dare', 'Take the dare', 'Upload proof', 'First valid wins']) {
+    ok(land.includes(step), `"${step}" survived the move`);
+  }
+  // The page used to lock scrolling on <body>, which would leave everything
+  // above unreachable. overflow-x is the deliberate one: the wordmark is drawn
+  // with scaleX(1.14) and hangs off both edges.
+  ok(!/\bbody\s*\{[^}]*\boverflow\s*:\s*hidden/.test(land),
+    'the page scrolls, or nothing below the fold is reachable');
+  ok(/overflow-x:hidden/.test(land), 'but it still clips the over-scaled wordmark sideways');
+}
+
+console.log('\n-- a won dare is a still on the desktop grid, not a black card --');
+{
+  const prime = grab('primeStills');
+  ok(/isDesktop\(\)/.test(prime), 'it only touches the grid at the desktop breakpoint');
+  ok(/preload='metadata'/.test(prime), 'it asks for metadata, not the whole clip');
+  ok(/#t=/.test(prime), 'and seeks past the start, so a frame actually paints');
+  ok(/primeStills\(\)/.test(grab('loadChallenges')), 'loadChallenges primes the cards it just rendered');
+  ok(/if\(isDesktop\(\)\)\s*return/.test(grab('feedScroll')),
+    'feedScroll stands down on the grid, where there is no current slide');
+}
+
+console.log('\n-- the web keeps Create and Profile, pointed at Telegram --');
+{
+  ok(!/\.remove\(\)/.test(grab('initWeb')), 'initWeb no longer strips tabs out of the nav');
+  ok(/toTelegram\(\)/.test(grab('go')), 'go() hands the account tabs to Telegram instead');
+}
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
