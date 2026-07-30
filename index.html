@@ -1442,20 +1442,18 @@ function openLogin(){
   const ov=$('#login'); if(!ov) return;
   haptic('light');
   const slot=$('#login-widget');
-  // Telegram's script replaces this <script> tag with the button iframe, so it
-  // has to be re-inserted each time rather than left in the markup.
+  // The button is not drawn here. telegram-widget.js evaluates strings, and
+  // this document — the one that signs transfers and holds the session token —
+  // is not getting 'unsafe-eval' for a login button. /tg-login.html has it
+  // instead, alone, and posts the result back.
   if(slot && !slot.dataset.ready){
     slot.dataset.ready='1';
-    const s=document.createElement('script');
-    s.async=true;
-    s.src='https://telegram.org/js/telegram-widget.js?22';
-    s.setAttribute('data-telegram-login', botName());
-    s.setAttribute('data-size','large');
-    s.setAttribute('data-radius','8');
-    s.setAttribute('data-onauth','onTelegramAuth(user)');
-    s.setAttribute('data-request-access','write');
-    s.onerror=()=>{ slot.innerHTML='<div class="d-web"><p>Telegram’s sign-in button could not load. You can still open Bountly in Telegram.</p></div>'; };
-    slot.appendChild(s);
+    const f=document.createElement('iframe');
+    f.src='/tg-login.html?bot='+encodeURIComponent(botName());
+    f.title='Sign in with Telegram';
+    f.setAttribute('scrolling','no');
+    f.style.cssText='width:100%;height:52px;border:0;display:block;color-scheme:normal';
+    slot.appendChild(f);
   }
   ov.classList.add('show');
 }
@@ -1475,6 +1473,16 @@ async function onTelegramAuth(u){
   }catch(e){ haptic('error'); toast(e.message||'Sign-in failed'); }
 }
 window.onTelegramAuth = onTelegramAuth;
+// The button lives in an iframe, so the payload arrives as a message rather
+// than a direct call. Origin is checked because anything on the internet can
+// post to this window — though a forged payload buys nothing, since the server
+// verifies Telegram's signature before it mints anything.
+window.addEventListener('message', e=>{
+  if(e.origin!==location.origin) return;
+  const d=e.data;
+  if(!d || d.source!=='bountly-tg-login' || !d.user) return;
+  onTelegramAuth(d.user);
+});
 function signOut(){
   setSession(''); ME=null;
   const chip=$('#me-chip'); if(chip) chip.remove();

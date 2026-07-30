@@ -406,6 +406,21 @@ const CSP_APP = [
   TELEGRAM_FRAME
 ].join("; ");
 const CSP_ADMIN = CSP_APP.replace(TELEGRAM_FRAME, "frame-ancestors 'none'");
+// telegram-widget.js evaluates strings, so the sign-in button cannot render
+// under the app's script-src. Rather than grant 'unsafe-eval' to the document
+// that signs transfers and holds the session token, the button gets this page
+// to itself: no app code, no money path, and embeddable only by us.
+const CSP_LOGIN = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org",
+  "style-src 'unsafe-inline'",
+  "img-src 'self' data: https://t.me",
+  "frame-src https://oauth.telegram.org",
+  "connect-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'self'"
+].join("; ");
 function corsHeaders(){
   if (!ALLOW_ORIGIN) return {}; // same-origin: no CORS headers needed
   return {
@@ -1076,13 +1091,15 @@ const server = http.createServer(async (req, res) => {
     "/index.html":    { file: "index.html",    type: "text/html" },
     "/admin":         { file: "admin.html",    type: "text/html" },
     "/admin/":        { file: "admin.html",    type: "text/html" },
-    "/admin.html":    { file: "admin.html",    type: "text/html" }
+    "/admin.html":    { file: "admin.html",    type: "text/html" },
+    "/tg-login.html": { file: "tg-login.html", type: "text/html" }        // the sign-in button, sandboxed
   };
   const entry = STATIC[p];
   if (!entry){ res.writeHead(404, SECURITY_HEADERS); return res.end("Not found"); }
   fs.readFile(path.join(__dirname, entry.file), (err, data) => {
     if (err){ res.writeHead(404, SECURITY_HEADERS); return res.end("Not found"); }
-    const csp = entry.file === "admin.html" ? CSP_ADMIN : CSP_APP;
+    const csp = entry.file === "admin.html" ? CSP_ADMIN
+              : entry.file === "tg-login.html" ? CSP_LOGIN : CSP_APP;
     res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": "no-cache",
       ...(entry.type === "text/html" ? { "Content-Security-Policy": csp } : {}),
       ...SECURITY_HEADERS });

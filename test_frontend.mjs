@@ -20,7 +20,7 @@ function inlineScripts(file) {
 }
 
 console.log('\n-- every inline script parses --');
-for (const file of ['index.html', 'admin.html', 'landing.html']) {
+for (const file of ['index.html', 'admin.html', 'landing.html', 'tg-login.html']) {
   for (const b of inlineScripts(file)) {
     try { new vm.Script(b.code, { filename: `${file}:${b.line}` }); pass++; console.log(`  ok ${file} (block at line ${b.line})`); }
     catch (e) { fail++; console.log(`  FAIL ${file}:${b.line} — ${e.message}`); }
@@ -373,8 +373,34 @@ console.log('\n-- the server checks the widget itself --');
   // it, so leaving 'self' out silently forbids same-origin frames.
   ok(/frame-src 'self' https:\/\/oauth\.telegram\.org/.test(srv),
     "the CSP lets the widget frame load, and keeps 'self' while doing it");
+
+  // The whole point of the separate login page: telegram-widget.js evaluates
+  // strings, and the document that signs transfers must not be allowed to.
+  const appCsp   = srv.slice(srv.indexOf('const CSP_APP'),   srv.indexOf('const CSP_ADMIN'));
+  const loginCsp = srv.slice(srv.indexOf('const CSP_LOGIN'), srv.indexOf('function corsHeaders'));
+  ok(!/unsafe-eval/.test(appCsp),  'the app itself never gets unsafe-eval');
+  ok(/unsafe-eval/.test(loginCsp), 'and the sign-in page, which needs it, does');
+  ok(/frame-ancestors 'self'/.test(loginCsp), 'only we may embed the sign-in page');
+  ok(/connect-src 'none'/.test(loginCsp), 'and it can call nothing of its own');
+  ok(/"\/tg-login\.html"/.test(srv), 'the page is on the static whitelist');
   // The session token must be unforgeable without the bot token.
   ok(/SESSION_KEY[\s\S]{0,200}createHmac/.test(srv), 'session tokens are signed, not just random strings');
+}
+
+console.log('\n-- the sign-in button is sandboxed, and its answer is checked --');
+{
+  ok(/tg-login\.html\?bot=/.test(html), 'the app embeds the sign-in page rather than the widget script');
+  // The URL, not the name — the name still appears in the comment explaining
+  // why it is not here, and that comment is worth keeping.
+  ok(!/telegram\.org\/js\/telegram-widget/.test(html),
+    'and never loads the eval-ing script into itself');
+  const listener = html.slice(html.indexOf("addEventListener('message'"), html.indexOf("addEventListener('message'") + 420);
+  ok(/e\.origin!==location\.origin/.test(listener), 'a message from another origin is dropped');
+  ok(/source!=='bountly-tg-login'/.test(listener), 'and so is one that is not ours');
+  const page = fs.readFileSync(path.join(__dirname, 'tg-login.html'), 'utf8');
+  ok(/postMessage\(\{[^}]*source: 'bountly-tg-login'/.test(page), 'the page posts a tagged payload');
+  ok(/location\.origin\)/.test(page), 'to this origin exactly, not "*"');
+  ok(/replace\(\/\[\^A-Za-z0-9_\]\/g/.test(page), 'and the bot name from the query string is sanitised');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

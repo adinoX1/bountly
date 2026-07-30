@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sign in with Telegram</title>
+<style>
+  html,body{margin:0;height:100%;background:transparent}
+  body{display:grid;place-items:center}
+  /* Until Telegram swaps the tag out for its button there is nothing to see;
+     the parent sheet already explains what is about to happen. Do not write a
+     literal script tag in this comment — the test harness scans for one. */
+  #fallback{font:12px/1.5 ui-monospace,monospace;color:#988C88;text-align:center;
+    padding:0 14px;display:none}
+</style>
+</head>
+<body>
+<div id="fallback">Telegram’s sign-in button could not load.</div>
+<script>
+// This page exists for one reason: telegram-widget.js evaluates strings, so it
+// needs 'unsafe-eval'. Granting that to the app itself would mean the document
+// that signs transfers and holds the session token can also eval — for a login
+// button. So the button lives here instead, alone, on a page with no app code,
+// and hands the result up by postMessage.
+//
+// This is not a trust boundary and is not pretending to be one. Anything can
+// post a message; what makes it safe is that the payload is worthless without
+// Telegram's signature, which only the server can check and does, before any
+// session exists.
+(function(){
+  var q = new URLSearchParams(location.search);
+  var bot = (q.get('bot') || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 64);
+  if (!bot){ document.getElementById('fallback').style.display = 'block'; return; }
+
+  window.onAuth = function(user){
+    // Same origin as the parent — this page and the app are the same site, so
+    // the target can be exact rather than "*".
+    try { parent.postMessage({ source: 'bountly-tg-login', user: user }, location.origin); }
+    catch (e) {}
+  };
+
+  var s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://telegram.org/js/telegram-widget.js?22';
+  s.setAttribute('data-telegram-login', bot);
+  s.setAttribute('data-size', 'large');
+  s.setAttribute('data-radius', '8');
+  s.setAttribute('data-onauth', 'onAuth(user)');
+  s.setAttribute('data-request-access', 'write');
+  s.onerror = function(){ document.getElementById('fallback').style.display = 'block'; };
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>
