@@ -270,6 +270,21 @@ for (const sel of ['data-player', 'data-share', 'data-react', 'data-comments']) 
     `${sel} gets out of the slide's own click handler`);
 }
 
+console.log('\n-- a live dare reads green, in both style layers --');
+{
+  // index.html states its tokens twice — a base block and a design layer that
+  // restates them — and its own note at the top asks for the two to be kept in
+  // step, because a meaning split across two hexes is how a win and a rejection
+  // ended up identical once already.
+  const rules = [...html.matchAll(/\.tag\.live\{([^}]*)\}/g)].map(m => m[1]);
+  eq(rules.length, 2, 'both layers still declare .tag.live');
+  for (const [i, r] of rules.entries()) {
+    ok(/var\(--live/.test(r), `layer ${i + 1} colours it from the live token`);
+    ok(!/--red|--lime|244,\s*33,\s*46|255,\s*46,\s*59/.test(r), `layer ${i + 1} keeps no red in it`);
+  }
+  ok(/--live:#/.test(html), 'and the token itself is defined');
+}
+
 console.log('\n-- the nav is Home, Create, Profile --');
 {
   const nav = html.slice(html.indexOf('<nav class="tabbar" id="nav">'), html.indexOf('</nav>'));
