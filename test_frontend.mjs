@@ -350,7 +350,10 @@ console.log('\n-- the server checks the widget itself --');
   ok(/timingSafeEqual/.test(srv), 'signatures are compared in constant time');
   ok(/auth_date/.test(srv), 'and a stale payload is refused');
   ok(/authLimit\.take/.test(srv), 'sign-in attempts are rate limited');
-  ok(/frame-src https:\/\/oauth\.telegram\.org/.test(srv), 'the CSP lets the widget frame load');
+  // Naming frame-src replaces the default-src fallback instead of extending
+  // it, so leaving 'self' out silently forbids same-origin frames.
+  ok(/frame-src 'self' https:\/\/oauth\.telegram\.org/.test(srv),
+    "the CSP lets the widget frame load, and keeps 'self' while doing it");
   // The session token must be unforgeable without the bot token.
   ok(/SESSION_KEY[\s\S]{0,200}createHmac/.test(srv), 'session tokens are signed, not just random strings');
 }

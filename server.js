@@ -396,7 +396,11 @@ const CSP_APP = [
   // from oauth.telegram.org and confirms the sign-in in a popup to the same
   // host. Without this, default-src 'self' blocks the frame and the website
   // has no way for anyone to sign in at all.
-  "frame-src https://oauth.telegram.org",
+  //
+  // 'self' has to be spelled out. Naming frame-src at all replaces the
+  // default-src fallback rather than adding to it, so listing only Telegram
+  // would quietly forbid same-origin frames that used to be allowed.
+  "frame-src 'self' https://oauth.telegram.org",
   "base-uri 'none'",
   "form-action 'none'",
   TELEGRAM_FRAME
