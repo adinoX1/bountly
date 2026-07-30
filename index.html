@@ -1497,7 +1497,15 @@ async function api(path,opts={}){
   const headers={ "X-Telegram-Init":INIT, ...(opts.headers||{}) };
   if(SESSION) headers["X-Session"]=SESSION;
   if(!(opts.body instanceof FormData)) headers["Content-Type"]="application/json";
-  const r=await fetch(path,{...opts,headers});
+  let r;
+  try{ r=await fetch(path,{...opts,headers}); }
+  catch(e){
+    // fetch() only rejects when the request never completed at all — offline,
+    // DNS, nothing listening. The browser's own wording for that is "Failed to
+    // fetch", which every caller then paints into the UI, and it reads as "this
+    // app is broken" when the one thing that is not broken is the app.
+    throw new Error("Can't reach Bountly — check your connection and try again");
+  }
   if(!r.ok){
     // A token the server no longer accepts — expired, or the account went away.
     // Leaving it in place would keep the app painting a logged-in shell over a

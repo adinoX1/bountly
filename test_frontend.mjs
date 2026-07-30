@@ -341,6 +341,10 @@ console.log('\n-- signing in on the website --');
   ok(/!signedIn\(\)\s*&&\s*opts\.method/.test(a), 'api() blocks writes only while signed out');
   ok(/X-Session/.test(a), 'and attaches the session token when there is one');
   ok(/r\.status===401\s*&&\s*SESSION/.test(a), 'a rejected token is dropped rather than kept');
+  // A dead network is not a broken product, and the browser's own wording for
+  // it ("Failed to fetch") gets painted straight into the wallet sheet.
+  ok(/try\{\s*r=await fetch/.test(a), 'a request that never completes is caught');
+  ok(/Can't reach Bountly/.test(a), 'and reported as a connection problem, not as a failure of the app');
   // Uploads bypass api(), so they need both halves themselves.
   const sp = grab('submitProof');
   ok(/!signedIn\(\)/.test(sp), 'submitProof refuses while signed out');
