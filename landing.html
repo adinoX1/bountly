@@ -127,6 +127,21 @@
   .cta:active{transform:translateY(0)}
   .cta svg{width:22px;height:22px;flex:0 0 auto}
 
+  /* The app now runs in a plain browser, read-only, so this page has
+     somewhere to send you that is not a Telegram install. It stays quiet:
+     taking a dare still happens in Telegram, and that is the button above. */
+  .browse-wrap{margin-top:22px;text-align:center}
+  .browse{
+    display:inline-flex;align-items:center;gap:9px;
+    color:rgba(255,255,255,.58);text-decoration:none;
+    font-family:'JetBrains Mono',ui-monospace,monospace;
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    border-bottom:1px solid rgba(255,255,255,.16);padding-bottom:4px;
+    transition:color .2s ease,border-color .2s ease;
+  }
+  .browse:hover{color:#fff;border-color:rgba(255,255,255,.45)}
+  .browse svg{width:13px;height:13px;flex:0 0 auto}
+
   .hint{margin-top:16px;font-size:12px;letter-spacing:.14em;color:#7a7a80;text-transform:uppercase}
 
   /* background UGC video — sits behind the grid pattern + text, dark filter for contrast */
@@ -168,6 +183,13 @@
       </svg>
       Open on Telegram
     </a>
+
+    <div class="browse-wrap">
+      <a class="browse" href="/app">
+        See what's live
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
   </main>
 
   <div class="social">

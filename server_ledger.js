@@ -72,7 +72,12 @@ async function winnersOf(pool, dareId) {
 
 export async function ledgerApi(ctx) {
   const { method, path: p, user, pool, json, res } = ctx;
-  const uname = user.username;
+  // server.js lets the two public dare GETs through without a session, so the
+  // viewer can be nobody. wallet.listDares/reactionsFor already default their
+  // viewer to null and a SQL comparison against NULL simply matches no rows,
+  // so an anonymous reader gets the dare with none of the "did I react / did I
+  // already submit" state attached — which is exactly right.
+  const uname = user ? user.username : null;
 
   // ----- balance / me -----
   if (p === '/api/me' && method === 'GET') {

@@ -21,7 +21,8 @@
     "test:uploads": "node test_uploads.mjs",
     "test:expiry": "node test_expiry_json.mjs",
     "test:frontend": "node test_frontend.mjs",
-    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:deposits && npm run test:ton && npm run test:solana && npm run test:uploads && npm run test:expiry && npm run test:frontend"
+    "test:public": "node test_public_read.mjs",
+    "test": "npm run test:ledger && npm run test:migrate && npm run test:wallet && npm run test:server && npm run test:deposits && npm run test:ton && npm run test:solana && npm run test:uploads && npm run test:expiry && npm run test:frontend && npm run test:public"
   },
   "dependencies": {
     "pg": "^8.13.1",

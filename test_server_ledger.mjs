@@ -43,6 +43,27 @@ await call('POST',`/api/admin/approve/${sA}`,{ user:admin });
 await call('POST',`/api/admin/approve/${sB}`,{ user:admin });
 eq((await call('GET','/api/me',{ user:alice })).body.user.credits,9,'alice 9 after payout');
 
+console.log('\n-- an anonymous reader, which is what the web is --');
+// server.js hands ledgerApi a null user for the two public dare GETs. This is
+// the path production runs, so it is exercised against a real database here
+// rather than reasoned about: ledgerApi used to read user.username on entry
+// and would have thrown before reaching any handler.
+{
+  const list = await call('GET','/api/challenges',{ user:null });
+  eq(list.code,200,'GET /api/challenges answers with no user at all');
+  ok(Array.isArray(list.body.challenges)&&list.body.challenges.length===1,'the dare is listed');
+  ok(!list.body.challenges[0].myReaction,'no reaction is claimed on nobody\'s behalf');
+
+  const one = await call('GET',`/api/challenges/${dareId}`,{ user:null });
+  eq(one.code,200,'GET /api/challenges/:id answers with no user');
+  eq(one.body.challenge.mySubmission,false,'mySubmission is false rather than a crash');
+  ok(!one.body.challenge.myReaction,'nor is a reaction on the detail');
+  ok(typeof one.body.challenge.reactionCounts==='object','reaction totals are still counted');
+  ok(Array.isArray(one.body.challenge.commentList),'and the comments still travel with it');
+  // The reader is nobody, so nobody's balance may ride along.
+  ok(one.body.challenge.credits===undefined,'no balance leaks onto a public read');
+}
+
 console.log('\n-- dashboard: overview --');
 r = await call('GET','/api/dash/overview',{ user:dash });
 eq(r.body.overview.users,3,'overview users=3');

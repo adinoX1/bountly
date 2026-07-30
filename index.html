@@ -1042,6 +1042,120 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
   #bg .bgv{display:none}
   .swipe-hint svg{animation:none}
 }
+/* ---- the open web ----------------------------------------------------
+   Read-only outside Telegram: no balance chip, no create or profile tab,
+   and one way back into the build that can actually hold your money. */
+.tg-cta{display:inline-flex;align-items:center;gap:7px;text-decoration:none;
+  font-family:var(--strong);font-size:12.5px;font-weight:800;letter-spacing:-.01em;
+  color:#fff;padding:8px 14px;border-radius:999px;white-space:nowrap;
+  background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 6px 18px -8px rgba(255,46,59,.85),inset 0 1px 0 rgba(255,255,255,.32);
+  transition:transform .13s ease}
+.tg-cta:active{transform:scale(.96)}
+.d-web p{margin:0 0 13px;color:var(--txt2);font-size:13.5px;line-height:1.6}
+/* A composer you cannot post from is worse than no composer. Comments stay
+   readable on the web; writing one is a thing you do in Telegram. */
+body.web .cm-form,body.web .cm-hint{display:none}
+
+/* ---- desktop: the feed becomes a wall --------------------------------
+   One dare per screen is right under a thumb and wrong on a monitor — a
+   9:16 clip in a 100dvh box gets object-fit:cover'd down to a letterbox
+   band. Above this breakpoint the feed stops being a fixed snap scroller
+   and becomes a grid of cards; the clip plays in the detail sheet on
+   click, which is where every action already lives. Everything below
+   900px is untouched: the phone build ships exactly as it is. */
+@media(min-width:900px){
+  body.immersive{overflow:visible;height:auto}
+  main{max-width:1120px}
+
+  /* The ambient loop is the ground under a full-screen slide. Behind a grid
+     of cards it is just a busy photograph competing with them, so it drops
+     to a suggestion of itself. */
+  #bg .bgv{filter:brightness(.16) saturate(.85) contrast(1.02)}
+  #bg .scrim{background:
+    radial-gradient(60% 40% at 50% 0%,rgba(255,46,59,.13),transparent 64%),
+    linear-gradient(180deg,rgba(8,6,6,.66) 0%,rgba(8,6,6,.86) 60%,rgba(8,6,6,.94) 100%)}
+
+  /* The counter is "where am I in the stack", which a grid answers by
+     existing. It goes; the money it carried is on every card anyway. */
+  #strip{display:none}
+
+  /* Under a thumb the nav belongs at the bottom of the screen. On a monitor
+     it belongs in the header, which is where a website keeps its nav. */
+  .tabbar{
+    /* right:auto matters — the base rule pins left:0/right:0, and left:50%
+       alone would leave the box half the viewport wide */
+    top:11px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);
+    width:auto;max-width:none;padding:5px;
+    flex-direction:row;justify-content:flex-start;gap:3px;
+    border:1px solid var(--line-strong);border-radius:999px;
+    background:rgba(20,14,14,.74);backdrop-filter:blur(16px);
+    box-shadow:0 18px 40px -22px rgba(0,0,0,.9)}
+  .tabbar button{
+    flex:0 0 auto;flex-direction:row;gap:8px;align-items:center;
+    padding:8px 17px;border-radius:999px;font-size:12px}
+  .tabbar button svg{width:17px;height:17px}
+  .tabbar button.active{background:rgba(255,255,255,.10);color:#fff}
+  .tabbar button.active::before{display:none}
+
+  .view[data-view="bounties"].active{
+    position:static;overflow:visible;pointer-events:auto;
+    animation:rise .45s cubic-bezier(.2,.7,.3,1) both}
+  /* the filter sits over the grid it filters, not floating above the page */
+  .market-head{position:static;margin-bottom:20px;justify-content:flex-start}
+  .swipe-hint{display:none}
+
+  #grid{
+    position:static;display:grid;gap:22px 18px;overflow:visible;
+    grid-template-columns:repeat(auto-fill,minmax(208px,1fr));
+    scroll-snap-type:none}
+
+  /* The card reserves its own 9:16 media box with a ::before, so the
+     absolutely-positioned clip and scrim stay pinned to the top of the
+     card and the caption can sit underneath them in normal flow. */
+  .slide{height:auto;overflow:visible;scroll-snap-align:none;
+    transition:transform .16s ease}
+  /* The ::before both reserves the media box and is the card's surface. A
+     dare only has footage once somebody has won it, so most cards have no
+     clip at all — without a ground of their own they were see-through onto
+     the ambient loop, which reads as a broken image rather than a card. */
+  .slide::before{content:"";display:block;padding-top:177.78%;
+    border-radius:13px;
+    background:radial-gradient(120% 90% at 50% 0%,#25161a 0%,#150e10 56%,#0b0809 100%)}
+  .slide .s-vid,.slide .s-scrim{
+    top:0;left:0;right:0;bottom:auto;height:auto;aspect-ratio:9/16;
+    border-radius:13px}
+  .slide .s-vid{filter:brightness(.82) saturate(1.05) contrast(1.02)}
+  .slide .s-scrim{background:linear-gradient(180deg,
+    transparent 55%,rgba(6,4,4,.55) 100%)}
+  .slide:hover{transform:translateY(-3px)}
+  .slide:hover .s-vid{filter:brightness(1) saturate(1.08)}
+  /* the reward, ghosted across the card the way it is across the slide —
+     but only where there is no footage for it to fight with */
+  .slide .wm{top:0;left:0;right:auto;bottom:auto;width:100%;height:auto;
+    aspect-ratio:9/16;display:grid;place-items:center;
+    font-size:46px;line-height:1;color:rgba(255,255,255,.13)}
+  .slide.has-vid .wm{display:none}
+
+  /* caption under the still: title, then the reward the rail used to carry */
+  .s-body{position:static;display:flex;flex-direction:column;
+    align-items:flex-start;gap:9px;padding:12px 2px 0;max-width:none;margin:0}
+  .s-left{max-width:none;width:100%}
+  .s-left .meta1{font-size:11px;margin-bottom:7px;text-shadow:none}
+  .s-left h3{font-size:17px;line-height:1.06;margin:0 0 10px;
+    text-shadow:none;letter-spacing:.005em}
+  .s-left .chips{margin-bottom:10px}
+  .s-left .slotline{max-width:none}
+
+  /* the rail is a thumb affordance; on a pointer it collapses to the
+     one thing the card still has to say, which is the money */
+  .s-rail{flex-direction:row;align-items:baseline;gap:6px;
+    width:auto;padding:0}
+  .s-rail .avatar,.s-rail .rbtn{display:none}
+  .r-reward{flex-direction:row;align-items:baseline;gap:5px}
+  .r-reward .n{font-size:23px;text-shadow:none}
+  .r-reward .u{margin-top:0;font-size:9.5px}
+}
 </style>
 </head>
 <body>
@@ -1250,6 +1364,21 @@ const tg = window.Telegram && window.Telegram.WebApp;
 let INIT="", ME=null;
 const $=s=>document.querySelector(s);
 if(tg){ tg.ready(); tg.expand(); try{tg.setHeaderColor('#09090c');tg.setBackgroundColor('#09090c');}catch(e){} INIT=tg.initData||""; }
+
+// ---- the open web ------------------------------------------------------
+// Outside Telegram there is no initData, so there is no session, and the app
+// used to die on the first 401 — the feed never even rendered. It now runs
+// read-only instead: the dare list and the detail sheet are public (server.js
+// lets exactly those two GETs past the auth gate) and anything that would
+// claim, post or spend becomes the invitation to carry on in Telegram, which
+// is where the balance and the escrow already live.
+const WEB = !INIT;
+const TG_APP = 'https://t.me/getbountlybot/arena';
+function toTelegram(){
+  haptic('light');
+  const url = APP_LINK || TG_APP;
+  try{ window.open(url,'_blank','noopener'); }catch(e){ location.href=url; }
+}
 // haptic feedback (native vibration in Telegram)
 function haptic(kind='light'){ try{ if(tg&&tg.HapticFeedback){
   if(kind==='success'||kind==='error'||kind==='warning') tg.HapticFeedback.notificationOccurred(kind);
@@ -1257,6 +1386,13 @@ function haptic(kind='light'){ try{ if(tg&&tg.HapticFeedback){
 }}catch(e){} }
 
 async function api(path,opts={}){
+  // Every write in the app funnels through here, so the web build needs no
+  // per-button guard to stay honest about what it cannot do. The thrown
+  // message is the one the caller already toasts.
+  if(WEB && opts.method && opts.method.toUpperCase()!=="GET"){
+    toTelegram();
+    throw new Error("Open Bountly on Telegram to do that");
+  }
   const headers={ "X-Telegram-Init":INIT, ...(opts.headers||{}) };
   if(!(opts.body instanceof FormData)) headers["Content-Type"]="application/json";
   const r=await fetch(path,{...opts,headers});
@@ -1295,7 +1431,11 @@ let toastT; function toast(m){ let t=$('#toast'); if(!t){t=document.createElemen
 
 // ---- tabs ----
 const tabs=document.querySelectorAll('#nav button'),views=document.querySelectorAll('.view');
-function go(t){ document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t));
+function go(t){
+  // Create, profile and admin are nothing but account state. They are not in
+  // the nav on the web, but a stray call or an old deep link still lands here.
+  if(WEB && (t==='create'||t==='profile'||t==='admin')){ toTelegram(); return; }
+  document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t));
   // The feed takes the whole viewport, so the page behind it must not scroll.
   document.body.classList.toggle('immersive',t==='bounties');
   window.scrollTo({top:0,behavior:'smooth'}); haptic('light');
@@ -1541,6 +1681,17 @@ async function openDetail(id,{focus=null}={}){
     else if(!isOpen(c)) action=`<div class="d-box" style="color:var(--red)">This dare expired — the bounty went back to its creator.</div>`;
     else if(ME&&ME.username===c.creator) action=`<div class="d-box">This is your dare — you can't complete your own bounty.</div>`;
     else if(c.mySubmission) action=`<div class="d-box" style="color:var(--green)">✓ You already submitted to this dare. Check Profile for status.</div>`;
+    // A web visitor can read a dare but cannot claim one. A drag-and-drop
+    // upload box that only ever ends in a redirect is a lie, so it becomes
+    // the redirect itself, said plainly.
+    else if(WEB) action=`
+      <div class="d-box d-web"><div class="lbl">Take this dare</div>
+        <p>Dares are claimed and paid inside Telegram, where your balance and
+           the escrow live. Open Bountly there to take this one.</p>
+        <a class="tg-cta" href="${TG_APP}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M21.9 4.3 18.8 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.8 13.2 2.2 11.8c-1-.3-1-1 .2-1.5l18.1-7c.8-.3 1.6.2 1.4 1z"/></svg>
+          Open on Telegram</a>
+      </div>`;
     else action=`
       <div class="d-box"><div class="lbl">Submit your proof</div>
         <div class="drop" id="drop"><div class="ic"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" style="margin:0 auto;opacity:.6"><rect x="2.5" y="6" width="13" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div><div class="t">Tap to choose your video</div><div class="s">or drag &amp; drop · max 50MB</div></div>
@@ -1613,7 +1764,8 @@ let CM_ID=null;
 function renderComments(list){
   const el=$('#cm-list'); if(!el) return;
   const n=$('#cm-n'); if(n) n.textContent=list.length||'';
-  if(!list.length){ el.innerHTML='<div class="cm-empty">Nothing said yet. Go first.</div>'; return; }
+  // "Go first" is an invitation the web cannot accept.
+  if(!list.length){ el.innerHTML=`<div class="cm-empty">${WEB?'Nothing said yet.':'Nothing said yet. Go first.'}</div>`; return; }
   el.innerHTML=list.map(c=>{
     // Your own comment, and an admin on anybody's, gets a way to take it back.
     const mine=ME&&ME.username===c.player;
@@ -1715,6 +1867,9 @@ function bumpCommentCount(id,n){
 }
 
 function submitProof(id, file){
+  // This one posts through XHR to get upload progress, so it never passes the
+  // guard in api() and needs its own.
+  if(WEB){ toTelegram(); return; }
   if(!file){ toast('Choose a video first'); return; }
   const _sb=$('#submit-proof'); if(_sb){ if(_sb.dataset.busy==='1') return; _sb.dataset.busy='1'; _sb.disabled=true; _sb.style.opacity='.6'; } const _rel=()=>{ if(_sb){ _sb.dataset.busy=''; _sb.disabled=false; _sb.style.opacity=''; } }; const fd=new FormData(); fd.append('video',file,file.name);
   const xhr=new XMLHttpRequest();
@@ -1929,6 +2084,9 @@ async function loadQueue(){
 
 // ---- me / header ----
 async function refreshMe(){
+  // Nobody is signed in on the web, so there is no balance to refresh and no
+  // admin tab to grow. The header carries the Telegram invitation instead.
+  if(WEB) return;
   try{ const r=await api('/api/me'); const user=r.user; ME=user;
     // Only the server knows the bot deep link, and every share needs it.
     if(r.appLink) APP_LINK=r.appLink;
@@ -2068,8 +2226,24 @@ async function loadLedger(){
     }).join('')+`</div>`:'<div style="color:var(--muted)">No transactions yet.</div>';
   }catch(e){ $('#admin-ledger').innerHTML=`<div style="color:var(--muted)">${esc(e.message)}</div>`; }
 }
+// The web build drops the two tabs that are nothing but account state, and
+// puts the way back into Telegram where the balance chip would have gone.
+function initWeb(){
+  document.body.classList.add('web');
+  document.querySelectorAll('#nav button[data-tab="create"],#nav button[data-tab="profile"]')
+    .forEach(b=>b.remove());
+  const slot=$('#follow-btn');
+  if(slot){
+    slot.style.display='';
+    slot.innerHTML=`<a class="tg-cta" href="${TG_APP}" target="_blank" rel="noopener">`+
+      `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M21.9 4.3 18.8 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.8 13.2 2.2 11.8c-1-.3-1-1 .2-1.5l18.1-7c.8-.3 1.6.2 1.4 1z"/></svg>`+
+      `Open on Telegram</a>`;
+  }
+}
+
 // Bounties is the tab you land on, and it is the immersive one.
 document.body.classList.add('immersive');
+if(WEB) initWeb();
 refreshMe().then(loadChallenges).finally(()=>{
   setTimeout(()=>{ const s=$('#splash'); if(s) s.classList.add('hide'); }, 1100);
 });

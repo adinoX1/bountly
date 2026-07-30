@@ -712,8 +712,20 @@ const server = http.createServer(async (req, res) => {
       return json(res, 404, { error: "unknown dashboard endpoint" });
     }
 
-    const g = getUser(req); if (!g.ok) return json(res, 401, { error: "unauthorized: " + g.error });
-    const u = g.user;
+    // ---- the auth gate --------------------------------------------------
+    // The web version has to show bounties to somebody who has never opened
+    // Telegram, so the two GETs that carry no per-user state are allowed to
+    // answer without a session. Everything below this still demands one,
+    // which is what keeps the money path exactly as narrow as it always was.
+    //
+    // u is null for those two, and only for those two: any other path with a
+    // bad or missing initData has already been turned away by the time the
+    // handlers below read it.
+    const publicRead = req.method === "GET" &&
+      (p === "/api/challenges" || /^\/api\/challenges\/\d+$/.test(p));
+    const g = getUser(req);
+    if (!g.ok && !publicRead) return json(res, 401, { error: "unauthorized: " + g.error });
+    const u = g.ok ? g.user : null;
 
     // Per-user write budget. Nothing but the dashboard login was limited, so a
     // single account could hammer dare creation or push 50 MB uploads in a loop.
@@ -760,7 +772,8 @@ const server = http.createServer(async (req, res) => {
     if (m && req.method === "GET"){
       const ch = db.challenges.find(c => c.id === Number(m[1])); if (!ch) return json(res, 404, { error: "not found" });
       const view = challengeView(ch);
-      view.mySubmission = db.submissions.find(s => s.chId === ch.id && s.userId === u.id && s.status !== "rejected") ? true : false;
+      // Nobody is signed in on the public web, so there is no "mine" to find.
+      view.mySubmission = !!(u && db.submissions.find(s => s.chId === ch.id && s.userId === u.id && s.status !== "rejected"));
       return json(res, 200, { challenge: view });
     }
 
