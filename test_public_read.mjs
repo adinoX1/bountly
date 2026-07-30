@@ -13,6 +13,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -121,6 +122,86 @@ console.log('\n-- the mini app and the landing page are both served --');
   const landing = await get('/');
   eq(landing.status, 200, 'GET / serves the landing page');
   ok(/href="\/app"/.test(await landing.text()), 'and the landing links into the web app');
+}
+
+// ---- signing in from a browser -------------------------------------------
+// The website authenticates with Telegram's Login Widget, which is signed with
+// a different secret than the mini app: SHA-256 of the bot token rather than
+// HMAC("WebAppData", token). The test knows the token, so it can produce a
+// genuine payload — and, more to the point, forge every near-miss.
+const BOT = 'test-token-not-a-real-bot';
+const widgetHash = fields => {
+  const dcs = Object.keys(fields).sort().map(k => `${k}=${fields[k]}`).join('\n');
+  const secret = crypto.createHash('sha256').update(BOT).digest();
+  return crypto.createHmac('sha256', secret).update(dcs).digest('hex');
+};
+const signIn = async (over = {}) => {
+  const f = { id: 777001, first_name: 'Web', username: 'webuser',
+              auth_date: Math.floor(Date.now() / 1000), ...over };
+  const body = { ...f, hash: over.hash || widgetHash(f) };
+  const r = await fetch(BASE + '/api/auth/telegram', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+};
+
+console.log('\n-- a browser can sign in with a real Telegram payload --');
+let session = '';
+{
+  const r = await signIn();
+  eq(r.status, 200, 'a correctly signed payload is accepted');
+  ok(typeof r.body.token === 'string' && r.body.token.length > 20, 'and answers with a session token');
+  ok(r.body.user && r.body.user.username === 'webuser', 'for the account Telegram named');
+  session = r.body.token;
+}
+
+console.log('\n-- and only with a real one --');
+{
+  eq((await signIn({ hash: 'deadbeef'.repeat(8) })).status, 401, 'a made-up hash is refused');
+  // The giveaway case: signing the payload the *mini app* way. Same data, same
+  // token, different derivation — accepting it would mean either surface's
+  // signature works on the other.
+  const f = { id: 777002, first_name: 'X', username: 'x', auth_date: Math.floor(Date.now()/1000) };
+  const dcs = Object.keys(f).sort().map(k => `${k}=${f[k]}`).join('\n');
+  const miniSecret = crypto.createHmac('sha256', 'WebAppData').update(BOT).digest();
+  const miniHash = crypto.createHmac('sha256', miniSecret).update(dcs).digest('hex');
+  eq((await signIn({ ...f, hash: miniHash })).status, 401, 'a mini-app signature does not open the website');
+  // Changing any field after signing must break the signature.
+  const good = { id: 777003, first_name: 'Y', username: 'y', auth_date: Math.floor(Date.now()/1000) };
+  eq((await signIn({ ...good, id: 999999, hash: widgetHash(good) })).status, 401,
+     'swapping the id after signing is caught');
+  eq((await signIn({ auth_date: Math.floor(Date.now()/1000) - 90000 })).status, 401,
+     'a payload from yesterday is expired');
+  eq((await signIn({ auth_date: 0 })).status, 401, 'and one with no timestamp is refused outright');
+}
+
+console.log('\n-- the session token is worth what initData is worth --');
+{
+  const me = await fetch(BASE + '/api/me', { headers: { 'X-Session': session } });
+  eq(me.status, 200, 'GET /api/me answers for a signed-in browser');
+  const who = (await me.json()).user;
+  eq(who.username, 'webuser', 'and it is the right account');
+
+  // Tampering: the id is inside the signed body, so bending it must fail.
+  const parts = session.split('.');
+  const bent = ['999999', parts[1], parts[2]].join('.');
+  eq((await fetch(BASE + '/api/me', { headers: { 'X-Session': bent } })).status, 401,
+     'pointing a token at another account breaks its signature');
+  eq((await fetch(BASE + '/api/me', { headers: { 'X-Session': parts[0] + '.' + parts[1] + '.' + 'f'.repeat(64) } })).status, 401,
+     'and so does replacing the signature');
+
+  // A validly signed but expired token. The key is derived from the bot token,
+  // which this test holds, so this is the real thing — only stale.
+  const key = crypto.createHmac('sha256', 'BountlyWebSession').update(BOT).digest();
+  const stale = `777001.${Date.now() - 1000}`;
+  const staleTok = `${stale}.${crypto.createHmac('sha256', key).update(stale).digest('hex')}`;
+  eq((await fetch(BASE + '/api/me', { headers: { 'X-Session': staleTok } })).status, 401,
+     'an expired token is refused even though it is genuinely signed');
+
+  // And the whole point: a signed-in browser can do the things it came for.
+  const post = await fetch(BASE + '/api/challenges', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Session': session },
+    body: JSON.stringify({ title: 'From the web', desc: 'd', rules: 'r', reward: 1, maxWinners: 1 }) });
+  ok(post.status !== 401, `posting a dare is no longer unauthorized (got ${post.status})`);
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

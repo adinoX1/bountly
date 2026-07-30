@@ -1043,19 +1043,37 @@ input::placeholder,textarea::placeholder{color:var(--dim)}
   .swipe-hint svg{animation:none}
 }
 /* ---- the open web ----------------------------------------------------
-   Read-only outside Telegram: no balance chip, no create or profile tab,
-   and one way back into the build that can actually hold your money. */
+   Outside Telegram the app is readable by anyone and writable by whoever
+   signed in with the Login Widget. Everything below dresses those two states:
+   `body.anon` is nobody, and the absence of it is somebody. */
 .tg-cta{display:inline-flex;align-items:center;gap:7px;text-decoration:none;
   font-family:var(--strong);font-size:12.5px;font-weight:800;letter-spacing:-.01em;
   color:#fff;padding:8px 14px;border-radius:999px;white-space:nowrap;
+  border:0;cursor:pointer;
   background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
   box-shadow:0 6px 18px -8px rgba(255,46,59,.85),inset 0 1px 0 rgba(255,255,255,.32);
   transition:transform .13s ease}
 .tg-cta:active{transform:scale(.96)}
+#signout-btn{background:var(--surface2);color:var(--txt2);box-shadow:none;
+  border:1px solid var(--line2);font-weight:700}
 .d-web p{margin:0 0 13px;color:var(--txt2);font-size:13.5px;line-height:1.6}
 /* A composer you cannot post from is worse than no composer. Comments stay
-   readable on the web; writing one is a thing you do in Telegram. */
-body.web .cm-form,body.web .cm-hint{display:none}
+   readable signed out; writing one is what signing in is for. */
+body.anon .cm-form,body.anon .cm-hint{display:none}
+
+/* ---- the sign-in sheet ----------------------------------------------
+   Telegram draws the button itself, inside an iframe it controls, so this is
+   a frame around somebody else's widget rather than a form of our own. That
+   is the point: the password is never ours to mishandle. */
+#login .modal{max-width:360px;text-align:center;padding:30px 26px 26px}
+#login .li-mark{width:52px;height:52px;border-radius:15px;margin:0 auto 15px;
+  display:grid;place-items:center;color:#fff;
+  background:linear-gradient(180deg,var(--red-bright),var(--red-deep));
+  box-shadow:0 10px 26px -12px rgba(255,46,59,.9)}
+#login h3{font-family:var(--display);font-size:23px;letter-spacing:.01em;margin-bottom:9px}
+#login p{color:var(--txt2);font-size:13.5px;line-height:1.62;margin-bottom:20px}
+#login-widget{min-height:48px;display:flex;justify-content:center;align-items:center}
+#login .li-fine{margin:18px 0 0;font-size:11.5px;color:var(--muted);line-height:1.55}
 
 /* ---- desktop: the feed becomes a wall --------------------------------
    One dare per screen is right under a thumb and wrong on a monitor — a
@@ -1096,6 +1114,11 @@ body.web .cm-form,body.web .cm-hint{display:none}
     padding:8px 17px;border-radius:999px;font-size:12px}
   .tabbar button svg{width:17px;height:17px}
   .tabbar button.active{background:rgba(255,255,255,.10);color:#fff}
+  /* .head-inner is space-between with three children, so the middle one — the
+     balance chip — lands dead centre, which up here is exactly where the tab
+     bar floats. It was being covered by it. Cluster the chip with the button
+     it belongs to instead of leaving it under the nav. */
+  #me-chip{margin-left:auto}
   .tabbar button.active::before{display:none}
 
   .view[data-view="bounties"].active{
@@ -1338,6 +1361,25 @@ body.web .cm-form,body.web .cm-hint{display:none}
 </div>
 </div>
 
+<!-- Sign-in, website only. The button inside #login-widget is drawn by
+     Telegram in its own iframe; we never see a password, and what comes back
+     is a payload the server checks against the bot token before it trusts a
+     single field of it. -->
+<div id="login" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Sign in">
+  <div class="modal" role="document">
+    <button class="modal-x" id="login-x">✕</button>
+    <div class="li-mark">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="27" height="27"><path d="M21.9 4.3 18.8 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.8 13.2 2.2 11.8c-1-.3-1-1 .2-1.5l18.1-7c.8-.3 1.6.2 1.4 1z"/></svg>
+    </div>
+    <h3>Sign in with Telegram</h3>
+    <p>One tap, no password. Your balance, your dares and your payouts are the
+       same whether you open Bountly here or in Telegram.</p>
+    <div id="login-widget"></div>
+    <p class="li-fine">Telegram shares your username and profile photo with
+       Bountly. It never shares your phone number or your password.</p>
+  </div>
+</div>
+
 <footer>
   <a class="btn btn-out btn-sm" href="https://x.com/BountlyApp" target="_blank" rel="noopener" style="display:inline-flex;margin-bottom:14px">Follow @BountlyApp on 𝕏</a>
   <div>Bountly © 2026 · Film it · Prove it · Win</div>
@@ -1365,6 +1407,70 @@ function toTelegram(){
   const url = APP_LINK || TG_APP;
   try{ window.open(url,'_blank','noopener'); }catch(e){ location.href=url; }
 }
+
+// ---- signing in on the website ------------------------------------------
+// Inside Telegram nobody signs in: initData rides on every request and already
+// says who you are. A browser has none, so it gets a session token instead —
+// minted by the server only after Telegram's own Login Widget vouched for the
+// account. Both roads end at a signature only the bot token can produce, which
+// is why a web session is allowed to do everything a mini app session can.
+let SESSION = '';
+try{ SESSION = localStorage.getItem('bountly.session') || ''; }catch(e){}
+const signedIn = () => !WEB || !!SESSION;
+function setSession(tok){
+  SESSION = tok || '';
+  try{ tok ? localStorage.setItem('bountly.session',tok) : localStorage.removeItem('bountly.session'); }catch(e){}
+  document.body.classList.toggle('anon', !signedIn());
+  // The header says who you are, so it has to be redrawn when that changes.
+  if(WEB) initWeb();
+}
+// The widget is keyed by bot username, and only the deep link knows it.
+function botName(){
+  const m = String(APP_LINK||TG_APP).match(/t\.me\/([A-Za-z0-9_]+)/);
+  return m ? m[1] : 'getbountlybot';
+}
+function openLogin(){
+  const ov=$('#login'); if(!ov) return;
+  haptic('light');
+  const slot=$('#login-widget');
+  // Telegram's script replaces this <script> tag with the button iframe, so it
+  // has to be re-inserted each time rather than left in the markup.
+  if(slot && !slot.dataset.ready){
+    slot.dataset.ready='1';
+    const s=document.createElement('script');
+    s.async=true;
+    s.src='https://telegram.org/js/telegram-widget.js?22';
+    s.setAttribute('data-telegram-login', botName());
+    s.setAttribute('data-size','large');
+    s.setAttribute('data-radius','8');
+    s.setAttribute('data-onauth','onTelegramAuth(user)');
+    s.setAttribute('data-request-access','write');
+    s.onerror=()=>{ slot.innerHTML='<div class="d-web"><p>Telegram’s sign-in button could not load. You can still open Bountly in Telegram.</p></div>'; };
+    slot.appendChild(s);
+  }
+  ov.classList.add('show');
+}
+function closeLogin(){ const ov=$('#login'); if(ov) ov.classList.remove('show'); }
+// Called by the widget itself, so it has to be reachable from global scope.
+async function onTelegramAuth(u){
+  try{
+    const r=await fetch('/api/auth/telegram',{
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(u) });
+    const d=await r.json().catch(()=>({error:'sign-in failed'}));
+    if(!r.ok) throw new Error(d.error||'sign-in failed');
+    setSession(d.token);
+    closeLogin(); haptic('success');
+    toast('Signed in as @'+(d.user&&d.user.username||'you'));
+    await refreshMe();
+    loadChallenges();
+  }catch(e){ haptic('error'); toast(e.message||'Sign-in failed'); }
+}
+window.onTelegramAuth = onTelegramAuth;
+function signOut(){
+  setSession(''); ME=null;
+  const chip=$('#me-chip'); if(chip) chip.remove();
+  toast('Signed out'); go('bounties');
+}
 // haptic feedback (native vibration in Telegram)
 function haptic(kind='light'){ try{ if(tg&&tg.HapticFeedback){
   if(kind==='success'||kind==='error'||kind==='warning') tg.HapticFeedback.notificationOccurred(kind);
@@ -1372,17 +1478,24 @@ function haptic(kind='light'){ try{ if(tg&&tg.HapticFeedback){
 }}catch(e){} }
 
 async function api(path,opts={}){
-  // Every write in the app funnels through here, so the web build needs no
-  // per-button guard to stay honest about what it cannot do. The thrown
-  // message is the one the caller already toasts.
-  if(WEB && opts.method && opts.method.toUpperCase()!=="GET"){
-    toTelegram();
-    throw new Error("Open Bountly on Telegram to do that");
+  // Every write funnels through here, so a signed-out browser needs no
+  // per-button guard to stay honest about what it cannot do. Signing in lifts
+  // this by itself — there is no second list of what becomes allowed.
+  if(!signedIn() && opts.method && opts.method.toUpperCase()!=="GET"){
+    openLogin();
+    throw new Error("Sign in with Telegram to do that");
   }
   const headers={ "X-Telegram-Init":INIT, ...(opts.headers||{}) };
+  if(SESSION) headers["X-Session"]=SESSION;
   if(!(opts.body instanceof FormData)) headers["Content-Type"]="application/json";
   const r=await fetch(path,{...opts,headers});
-  if(!r.ok){ const e=await r.json().catch(()=>({error:r.statusText})); throw new Error(e.error||"error"); }
+  if(!r.ok){
+    // A token the server no longer accepts — expired, or the account went away.
+    // Leaving it in place would keep the app painting a logged-in shell over a
+    // session that cannot do anything.
+    if(r.status===401 && SESSION){ setSession(''); ME=null; const c=$('#me-chip'); if(c) c.remove(); }
+    const e=await r.json().catch(()=>({error:r.statusText})); throw new Error(e.error||"error");
+  }
   return r.json();
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -1418,10 +1531,10 @@ let toastT; function toast(m){ let t=$('#toast'); if(!t){t=document.createElemen
 // ---- tabs ----
 const tabs=document.querySelectorAll('#nav button'),views=document.querySelectorAll('.view');
 function go(t){
-  // Create, profile and admin are nothing but account state, which the web has
-  // none of. Create and Profile are still in the nav there on purpose, so this
-  // is the ordinary path for them and not just a catch for stray deep links.
-  if(WEB && (t==='create'||t==='profile'||t==='admin')){ toTelegram(); return; }
+  // Create, profile and admin are account state, so they need somebody to be
+  // signed in — not somebody to be in Telegram. On the website that means the
+  // sign-in sheet rather than a redirect out of the page.
+  if(!signedIn() && (t==='create'||t==='profile'||t==='admin')){ openLogin(); return; }
   document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===t)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===t));
   // The feed takes the whole viewport, so the page behind it must not scroll.
   document.body.classList.toggle('immersive',t==='bounties');
@@ -1695,16 +1808,14 @@ async function openDetail(id,{focus=null}={}){
     else if(!isOpen(c)) action=`<div class="d-box" style="color:var(--red)">This dare expired — the bounty went back to its creator.</div>`;
     else if(ME&&ME.username===c.creator) action=`<div class="d-box">This is your dare — you can't complete your own bounty.</div>`;
     else if(c.mySubmission) action=`<div class="d-box" style="color:var(--green)">✓ You already submitted to this dare. Check Profile for status.</div>`;
-    // A web visitor can read a dare but cannot claim one. A drag-and-drop
-    // upload box that only ever ends in a redirect is a lie, so it becomes
-    // the redirect itself, said plainly.
-    else if(WEB) action=`
+    // A signed-out reader can see the dare but has no account to claim it with.
+    // An upload box that only ever ends in a prompt is a lie, so it becomes the
+    // prompt itself, said plainly.
+    else if(!signedIn()) action=`
       <div class="d-box d-web"><div class="lbl">Take this dare</div>
-        <p>Dares are claimed and paid inside Telegram, where your balance and
-           the escrow live. Open Bountly there to take this one.</p>
-        <a class="tg-cta" href="${TG_APP}" target="_blank" rel="noopener">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M21.9 4.3 18.8 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.8 13.2 2.2 11.8c-1-.3-1-1 .2-1.5l18.1-7c.8-.3 1.6.2 1.4 1z"/></svg>
-          Open on Telegram</a>
+        <p>Claiming a dare needs an account, so the payout has somewhere to go.
+           Sign in with Telegram — it takes one tap and no password.</p>
+        <button class="btn btn-red" id="d-login" style="width:100%">Sign in with Telegram</button>
       </div>`;
     else action=`
       <div class="d-box"><div class="lbl">Submit your proof</div>
@@ -1748,6 +1859,7 @@ async function openDetail(id,{focus=null}={}){
     CM_ID=id; renderComments(c.commentList||[]);
     bindReactionSet(id,c);
     bindCommentForm(id);
+    const dl=$('#d-login'); if(dl) dl.onclick=openLogin;
     // Arriving from the comment button on the rail should land on the comments,
     // not at the top of a sheet with the conversation two screens down.
     if(focus==='comments') requestAnimationFrame(()=>
@@ -1778,8 +1890,8 @@ let CM_ID=null;
 function renderComments(list){
   const el=$('#cm-list'); if(!el) return;
   const n=$('#cm-n'); if(n) n.textContent=list.length||'';
-  // "Go first" is an invitation the web cannot accept.
-  if(!list.length){ el.innerHTML=`<div class="cm-empty">${WEB?'Nothing said yet.':'Nothing said yet. Go first.'}</div>`; return; }
+  // "Go first" is an invitation a signed-out reader cannot accept.
+  if(!list.length){ el.innerHTML=`<div class="cm-empty">${signedIn()?'Nothing said yet. Go first.':'Nothing said yet.'}</div>`; return; }
   el.innerHTML=list.map(c=>{
     // Your own comment, and an admin on anybody's, gets a way to take it back.
     const mine=ME&&ME.username===c.player;
@@ -1883,12 +1995,15 @@ function bumpCommentCount(id,n){
 function submitProof(id, file){
   // This one posts through XHR to get upload progress, so it never passes the
   // guard in api() and needs its own.
-  if(WEB){ toTelegram(); return; }
+  if(!signedIn()){ openLogin(); return; }
   if(!file){ toast('Choose a video first'); return; }
   const _sb=$('#submit-proof'); if(_sb){ if(_sb.dataset.busy==='1') return; _sb.dataset.busy='1'; _sb.disabled=true; _sb.style.opacity='.6'; } const _rel=()=>{ if(_sb){ _sb.dataset.busy=''; _sb.disabled=false; _sb.style.opacity=''; } }; const fd=new FormData(); fd.append('video',file,file.name);
   const xhr=new XMLHttpRequest();
   xhr.open('POST','/api/challenges/'+id+'/submit');
   xhr.setRequestHeader('X-Telegram-Init',INIT);
+  // The website authenticates with a token instead, and an upload is the one
+  // request that does not go through api() to have it attached for free.
+  if(SESSION) xhr.setRequestHeader('X-Session',SESSION);
   const bar=$('#upbar'), fill=$('#upfill'); if(bar){bar.classList.add('show');}
   xhr.upload.onprogress=e=>{ if(e.lengthComputable&&fill) fill.style.width=Math.round(e.loaded/e.total*100)+'%'; };
   xhr.onload=()=>{ let r={}; try{r=JSON.parse(xhr.responseText)}catch(_){}
@@ -1900,7 +2015,9 @@ function submitProof(id, file){
 function closeDetail(){ $('#detail').classList.remove('show'); }
 $('#detail-x').onclick=closeDetail;
 $('#detail').onclick=e=>{ if(e.target.id==='detail') closeDetail(); };
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeDetail(); closePlayer(); } });
+const _lx=$('#login-x'); if(_lx)_lx.onclick=closeLogin;
+const _lo=$('#login'); if(_lo)_lo.onclick=e=>{ if(e.target.id==='login') closeLogin(); };
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeDetail(); closePlayer(); closeLogin(); } });
 
 // ---- public player profile ----
 async function openPlayer(username){
@@ -2098,9 +2215,9 @@ async function loadQueue(){
 
 // ---- me / header ----
 async function refreshMe(){
-  // Nobody is signed in on the web, so there is no balance to refresh and no
-  // admin tab to grow. The header carries the Telegram invitation instead.
-  if(WEB) return;
+  // A signed-out browser has no balance to refresh and no admin tab to grow.
+  // The header carries the invitation to sign in instead.
+  if(!signedIn()) return;
   try{ const r=await api('/api/me'); const user=r.user; ME=user;
     // Only the server knows the bot deep link, and every share needs it.
     if(r.appLink) APP_LINK=r.appLink;
@@ -2247,13 +2364,20 @@ async function loadLedger(){
 // where those two live — go() does that, so there is nothing to do here but
 // put the way back into Telegram where the balance chip would have gone.
 function initWeb(){
-  document.body.classList.add('web');
+  document.body.classList.toggle('anon', !signedIn());
   const slot=$('#follow-btn');
-  if(slot){
-    slot.style.display='';
-    slot.innerHTML=`<a class="tg-cta" href="${TG_APP}" target="_blank" rel="noopener">`+
+  if(!slot) return;
+  slot.style.display='';
+  if(signedIn()){
+    // refreshMe() paints the balance chip next to this; all that is left to
+    // offer is the way back out.
+    slot.innerHTML=`<button class="tg-cta" id="signout-btn" type="button">Sign out</button>`;
+    const b=$('#signout-btn'); if(b) b.onclick=signOut;
+  }else{
+    slot.innerHTML=`<button class="tg-cta" id="signin-btn" type="button">`+
       `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M21.9 4.3 18.8 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.8 13.2 2.2 11.8c-1-.3-1-1 .2-1.5l18.1-7c.8-.3 1.6.2 1.4 1z"/></svg>`+
-      `Open on Telegram</a>`;
+      `Sign in with Telegram</button>`;
+    const b=$('#signin-btn'); if(b) b.onclick=openLogin;
   }
 }
 

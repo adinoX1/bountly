@@ -104,6 +104,9 @@ const loginLimit  = rateLimiter(15 * 60e3, 8);    // dashboard password attempts
 const writeLimit  = rateLimiter(60e3, 30);        // any authenticated POST
 const uploadLimit = rateLimiter(60 * 60e3, 20);   // proof submissions per hour
 const avatarLimit = rateLimiter(60e3, 60);        // unauthenticated avatar proxy
+// Its own bucket, not loginLimit's: a rush of website sign-ins must not be
+// able to lock the operator out of the dashboard, or the reverse.
+const authLimit   = rateLimiter(15 * 60e3, 20);   // Login Widget sign-ins per IP
 
 // Cached Telegram profile photos: username -> { buf, exp }. Without this every
 // <img> hit fanned out into three calls to the Telegram API, which is a fast
@@ -115,7 +118,7 @@ const avatarCache = new Map();
 // long-running instance doesn't leak memory on every IP that ever connected.
 const sweeper = setInterval(() => {
   const now = Date.now();
-  for (const l of [loginLimit, writeLimit, uploadLimit, avatarLimit]) l.sweep(now);
+  for (const l of [loginLimit, writeLimit, uploadLimit, avatarLimit, authLimit]) l.sweep(now);
   for (const [t, exp] of dashTokens) if (now > exp) dashTokens.delete(t);
   for (const [k, v] of avatarCache) if (now > v.exp) avatarCache.delete(k);
 }, 10 * 60e3);
@@ -270,6 +273,60 @@ function verifyTelegram(initData){
   if (authDate && (Date.now() / 1000 - authDate) > 86400) return { ok: false, error: "expired" };
   return { ok: true, user: JSON.parse(params.get("user") || "{}") };
 }
+// The mini app and the website are signed differently by Telegram. The mini
+// app key is HMAC("WebAppData", token); the Login Widget uses the plain SHA-256
+// of the token. Same data-check-string shape, different secret — folding them
+// into one function would mean accepting either secret for either surface,
+// which is exactly the kind of shortcut that turns into an impersonation bug.
+function verifyLoginWidget(payload){
+  if (!BOT_TOKEN) return { ok: false, error: "server BOT_TOKEN not set" };
+  if (!payload || typeof payload !== "object") return { ok: false, error: "no payload" };
+  const { hash, ...rest } = payload;
+  if (!hash) return { ok: false, error: "no hash" };
+  const dataCheck = Object.keys(rest).sort().map(k => `${k}=${rest[k]}`).join("\n");
+  const secret = crypto.createHash("sha256").update(BOT_TOKEN).digest();
+  const calc = crypto.createHmac("sha256", secret).update(dataCheck).digest("hex");
+  if (!sameHex(calc, hash)) return { ok: false, error: "bad signature" };
+  // Telegram signs auth_date; without a freshness check a leaked payload would
+  // be a permanent key to the account.
+  const authDate = Number(rest.auth_date || 0);
+  if (!authDate || (Date.now() / 1000 - authDate) > 86400) return { ok: false, error: "expired" };
+  if (!rest.id) return { ok: false, error: "no id" };
+  return { ok: true, user: { id: rest.id, username: rest.username || "", first_name: rest.first_name || "" } };
+}
+// Constant-time, and tolerant of the garbage an attacker can put in `hash`:
+// Buffer.from(x,"hex") silently truncates on a bad char, so lengths are
+// compared first and timingSafeEqual never sees mismatched buffers.
+function sameHex(a, b){
+  const x = Buffer.from(String(a), "hex"), y = Buffer.from(String(b), "hex");
+  return x.length > 0 && x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+// ---- web sessions -------------------------------------------------------
+// Signed rather than stored. Railway restarts the process on every deploy, so
+// an in-memory table would sign the whole website out each time we ship. The
+// key is derived from the bot token, which means there is no new secret to
+// configure and no way to mint one of these without already holding the token.
+const SESSION_KEY = BOT_TOKEN
+  ? crypto.createHmac("sha256", "BountlyWebSession").update(BOT_TOKEN).digest() : null;
+const SESSION_TTL = 30 * 24 * 3600e3;
+function mintSession(id){
+  const body = `${id}.${Date.now() + SESSION_TTL}`;
+  return `${body}.${crypto.createHmac("sha256", SESSION_KEY).update(body).digest("hex")}`;
+}
+function readSession(tok){
+  if (!SESSION_KEY || !tok) return null;
+  const i = String(tok).lastIndexOf(".");
+  if (i < 1) return null;
+  const body = String(tok).slice(0, i), sig = String(tok).slice(i + 1);
+  if (!sameHex(crypto.createHmac("sha256", SESSION_KEY).update(body).digest("hex"), sig)) return null;
+  const cut = body.lastIndexOf(".");
+  if (cut < 1) return null;
+  const id = body.slice(0, cut), exp = Number(body.slice(cut + 1));
+  if (!(exp > Date.now())) return null;
+  return id;
+}
+
 function ensureUser(tg){
   const id = String(tg.id);
   if (!db.users[id]){
@@ -283,6 +340,18 @@ function ensureUser(tg){
 function getUser(req){
   const initData = req.headers["x-telegram-init"] || "";
   if (DEV_AUTH){ const id = req.headers["x-dev-user"] || "dev1"; return { ok: true, user: ensureUser({ id, username: id, first_name: id }) }; }
+  // A browser has no initData. If it signed in through the Login Widget it
+  // carries a session token instead, and that is worth exactly as much: both
+  // roads end at a signature only the bot token can produce.
+  if (!initData){
+    const id = readSession(req.headers["x-session"] || "");
+    if (id){
+      // The token carries an id and nothing else, so the account has to
+      // already exist — it does, because logging in created it.
+      const u = db.users[id];
+      return u ? { ok: true, user: u } : { ok: false, error: "session user is gone" };
+    }
+  }
   const v = verifyTelegram(initData); if (!v.ok) return { ok: false, error: v.error };
   return { ok: true, user: ensureUser(v.user) };
 }
@@ -320,9 +389,14 @@ const CSP_APP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://telegram.org https://cdnjs.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://t.me",
   "media-src 'self' blob:",
   "connect-src 'self'",
+  // The Login Widget is not a plain button: telegram.org draws it as an iframe
+  // from oauth.telegram.org and confirms the sign-in in a popup to the same
+  // host. Without this, default-src 'self' blocks the frame and the website
+  // has no way for anyone to sign in at all.
+  "frame-src https://oauth.telegram.org",
   "base-uri 'none'",
   "form-action 'none'",
   TELEGRAM_FRAME
@@ -723,6 +797,21 @@ const server = http.createServer(async (req, res) => {
     // handlers below read it.
     const publicRead = req.method === "GET" &&
       (p === "/api/challenges" || /^\/api\/challenges\/\d+$/.test(p));
+
+    // Signing in is the one write that cannot require being signed in. It is
+    // safe to answer without a session precisely because it does not trust the
+    // caller for anything: the payload has to carry Telegram's own signature,
+    // and a request that fails that check leaves with nothing.
+    if (req.method === "POST" && p === "/api/auth/telegram"){
+      if (!authLimit.take(clientIp(req)))
+        return json(res, 429, { error: "too many sign-in attempts — try again shortly" });
+      const v = verifyLoginWidget(body);
+      if (!v.ok) return json(res, 401, { error: "sign-in failed: " + v.error });
+      const user = ensureUser(v.user);
+      if (user.banned) return json(res, 403, { error: "account is banned" });
+      return json(res, 200, { token: mintSession(user.id), user: { id: user.id, username: user.username } });
+    }
+
     const g = getUser(req);
     if (!g.ok && !publicRead) return json(res, 401, { error: "unauthorized: " + g.error });
     const u = g.ok ? g.user : null;

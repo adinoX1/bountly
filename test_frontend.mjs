@@ -33,8 +33,19 @@ const src = inlineScripts('index.html').map(b => b.code).join('\n');
 const grab = name => {
   const i = src.indexOf(`function ${name}(`);
   if (i < 0) throw new Error(`${name} not found in index.html`);
+  // Find the body by walking past the parameter list first. Starting at the
+  // next '{' looks equivalent and is not: a default value like `opts={}` opens
+  // and closes a brace before the body does, so the scan below would return
+  // the signature alone and every assertion against the body would silently
+  // pass or silently fail on nothing.
+  let par = 0, bodyAt = -1;
+  for (let j = src.indexOf('(', i); j < src.length; j++) {
+    if (src[j] === '(') par++;
+    else if (src[j] === ')' && --par === 0) { bodyAt = src.indexOf('{', j); break; }
+  }
+  if (bodyAt < 0) throw new Error(`${name} has no body`);
   let depth = 0, started = false;
-  for (let j = src.indexOf('{', i); j < src.length; j++) {
+  for (let j = bodyAt; j < src.length; j++) {
     if (src[j] === '{') { depth++; started = true; }
     else if (src[j] === '}') { depth--; if (started && depth === 0) return src.slice(i, j + 1); }
   }
@@ -298,10 +309,50 @@ console.log('\n-- a won dare is a still on the desktop grid, not a black card --
     'feedScroll stands down on the grid, where there is no current slide');
 }
 
-console.log('\n-- the web keeps Create and Profile, pointed at Telegram --');
+console.log('\n-- the web keeps Create and Profile, behind a sign-in --');
 {
   ok(!/\.remove\(\)/.test(grab('initWeb')), 'initWeb no longer strips tabs out of the nav');
-  ok(/toTelegram\(\)/.test(grab('go')), 'go() hands the account tabs to Telegram instead');
+  // They stay on the page and ask you to sign in, rather than throwing you out
+  // of the website into Telegram.
+  ok(/openLogin\(\)/.test(grab('go')), 'go() opens the sign-in sheet for the account tabs');
+  ok(!/toTelegram\(\)/.test(grab('go')), 'and no longer redirects out of the page');
+}
+
+console.log('\n-- signing in on the website --');
+{
+  // The one rule that matters: what may write is what is signed in, and that
+  // is decided in exactly one place rather than per button.
+  const a = grab('api');
+  ok(/!signedIn\(\)\s*&&\s*opts\.method/.test(a), 'api() blocks writes only while signed out');
+  ok(/X-Session/.test(a), 'and attaches the session token when there is one');
+  ok(/r\.status===401\s*&&\s*SESSION/.test(a), 'a rejected token is dropped rather than kept');
+  // Uploads bypass api(), so they need both halves themselves.
+  const sp = grab('submitProof');
+  ok(/!signedIn\(\)/.test(sp), 'submitProof refuses while signed out');
+  ok(/X-Session/.test(sp), 'and sends the token, since it never passes through api()');
+  const auth = grab('onTelegramAuth');
+  ok(/\/api\/auth\/telegram/.test(auth), 'the widget payload goes to the server to be checked');
+  ok(/setSession\(d\.token\)/.test(auth), 'and the token it answers with is what gets stored');
+  ok(!/localStorage[\s\S]{0,40}JSON\.stringify\(u\)/.test(auth),
+    'the raw Telegram payload is never what authorises anything');
+  ok(/signedIn\(\)/.test(grab('refreshMe')), 'refreshMe only runs for somebody');
+}
+
+console.log('\n-- the server checks the widget itself --');
+{
+  const srv = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  // The two Telegram surfaces are signed with different secrets. Accepting one
+  // scheme's signature for the other surface would be an impersonation hole.
+  ok(/createHash\("sha256"\)\.update\(BOT_TOKEN\)/.test(srv),
+    'the Login Widget secret is SHA-256 of the token, not the mini app HMAC');
+  ok(/createHmac\("sha256", "WebAppData"\)\.update\(BOT_TOKEN\)/.test(srv),
+    'and the mini app keeps its own derivation');
+  ok(/timingSafeEqual/.test(srv), 'signatures are compared in constant time');
+  ok(/auth_date/.test(srv), 'and a stale payload is refused');
+  ok(/authLimit\.take/.test(srv), 'sign-in attempts are rate limited');
+  ok(/frame-src https:\/\/oauth\.telegram\.org/.test(srv), 'the CSP lets the widget frame load');
+  // The session token must be unforgeable without the bot token.
+  ok(/SESSION_KEY[\s\S]{0,200}createHmac/.test(srv), 'session tokens are signed, not just random strings');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
